@@ -8,7 +8,7 @@
 ## サポートページ
 以下のサポートページに解答と実証分析問題のデータを置いてくださっている。  
 サポートページでは実証分析問題はEViewsで解いているのでこのリポジトリではRで解く。  
-[実証のための計量時系列分析サポートページ](https://www.fbc.keio.ac.jp/~tyabu/enders/ "Enders_support)
+[実証のための計量時系列分析サポートページ](https://www.fbc.keio.ac.jp/~tyabu/enders/ "Enders_support")
 
 
 ## トラブルシューティング
