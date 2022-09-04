@@ -1,5 +1,6 @@
 # data files
 data/
+RCode/
 
 # config files for R and RSstudio
 .config/
