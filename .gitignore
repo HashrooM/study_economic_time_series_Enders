@@ -1,2 +1,12 @@
+# data files
 data/
 
+# config files for R and RSstudio
+.config/
+.local/
+.Rhistory
+.viminfo
+.bash_history
+
+# setting files
+.env
