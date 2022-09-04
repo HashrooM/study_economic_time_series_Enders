@@ -1,0 +1,14 @@
+version: '3'
+services:
+  tidyverse:
+    restart: always
+    build:
+      context: .
+    container_name: 'tidyverse'
+    tty: true
+    ports:
+      - ${HOST_PORT}:${CONTAINER_PORT}
+    environment:
+      PASSWORD: ${PASSWORD}
+    volumes:
+      - .:/home/rstudio
