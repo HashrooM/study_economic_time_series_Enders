@@ -6,8 +6,12 @@ RCode/
 .config/
 .local/
 .Rhistory
+.RData
 .viminfo
 .bash_history
 
 # setting files
 .env
+
+# Rmd file
+*.Rmd
