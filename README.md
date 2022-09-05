@@ -15,6 +15,13 @@ Rでの時系列モデルの構築、推定の仕方などの参考になる。
 [Use R/Python!](https://sites.google.com/view/davidgabauer/use-rpython "use_r_python")
 
 
+## Tips
+- R Markdownではヘッダで `output: github_document` と指定することでgithub上でプレビュー可能なmdファイルを生成できる。
+  - [GitHub Documents](https://rmarkdown.rstudio.com/github_document_format.html "rmd_github")
+  - グラフなどを含むRmdファイルで `kinit` すると画像がファイル名と同名のディレクトリに格納される。グラフならそこまで重い画像にならないだろうということでそのままリポジトリにpushする。
+    - 重い画像ならGit LFSなどを使うほうが良さそう。
+
+
 ## トラブルシューティング
 - Chromeでサポートページからデータをクリックしてダウンロードしようとしてもできない
   - 右クリック→「名前を付けてリンク先を保存」だと下のタブに「安全にダウンロードできません」という表示が出る
