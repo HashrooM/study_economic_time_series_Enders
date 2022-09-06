@@ -16,7 +16,8 @@ RUN apt-get clean
 # 時系列分析用のRライブラリインストール
 RUN R -e "install.packages('zoo')" \
   && R -e "install.packages('forecast')" \
-  && R -e "install.packages('tsibble')"
+  && R -e "install.packages('tsibble')" \
+  && R -e "install.packages('markdown')"
 
 # ワーキングディレクトリ変更
 WORKDIR /home/rstudio
