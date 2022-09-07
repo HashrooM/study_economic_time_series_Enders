@@ -1,0 +1,131 @@
+---
+title: "第2章 練習問題[11]"
+output: github_document
+---
+
+# [11]
+データSIM2.XLSの系列y3を用いて、以下の問いに答えよ。  
+(y3はAR(2)過程 yt = 0.7yt-1 - 0.49yt-2 + et から発生させた。)  
+
+
+## (a)
+横軸を時間とし、y3を図示せよ。標本ACF, PACFを求め、AR(2)の理論上のACF, PACFと比較せよ。
+
+```{r}
+library(data.table)
+library(dplyr)
+library(ggplot2)
+
+SIM2 <- fread("../data/SIM2.csv")
+
+# データのインデックス列に列名が無いためtimeを列名とする
+SIM2 <- dplyr::rename(SIM2, time = V1)
+
+# y3をプロット
+g <- ggplot(data = SIM2, aes(x = time, y = y3)) +
+     geom_line()
+plot(g)
+
+# ACF
+acf(SIM2[, y3])
+
+# PACF
+pacf(SIM2[, y3])
+```
+
+- y3のプロットから、y3は定常であるように見える。
+- y3のACFから、lag1, lag3が有意であり、ACFが徐々に減衰する様子が見える。これはAR(2)の理論上のACFの特徴と一致する。
+  - 一方で、lag16のあたりも有意であるため、MA項を入れることも視野に入れて良いかもしれない。
+- y3のPACFから、2次まで大きな尖りがある。これはAR(2)の理論上のPACFの特徴と一致する。
+  - 一方で、2次以上のLagでもPACFで有意なlagがいくつかある。lag15付近のMA項を入れることを考慮するかもしれない。
+  
+Rの `pacf()` はLag1から始まるのか。確かにLag0=1で確定だが若干分かりにくいかも...?  
+  
+
+## (b)
+AR(1)を推定すると、次の結果が得られるかを確認せよ。  
+  yt = 0.467(5.24)yt-1 + et  
+診断テストを行うことで、このモデルが不適当であることを示せ。  
+
+```{r}
+ar1 <- arima(SIM2[, y3], c(1, 0, 0), include.mean = FALSE)
+print(ar1)
+
+# 残差のACF
+acf(ar1$residuals)
+
+# 残差のPACF
+pacf(ar1$residuals)
+
+# 修正Q統計量
+Q_stat <- list(
+  Q8 = Box.test(ar1$residuals, lag = 8, type = "Ljung-Box")$statistic,
+  Q8_pvalue = Box.test(ar1$residuals, lag = 8, type = "Ljung-Box")$p.value,
+  Q16 = Box.test(ar1$residuals, lag = 16, type = "Ljung-Box")$statistic,
+  Q16_pvalue = Box.test(ar1$residuals, lag = 16, type = "Ljung-Box")$p.value,
+  Q24 = Box.test(ar1$residuals, lag = 24, type = "Ljung-Box")$statistic,
+  Q24_pvalue = Box.test(ar1$residuals, lag = 24, type = "Ljung-Box")$p.value
+)
+print(Q_stat)
+```
+
+- ar1係数の標準偏差が書籍とずれている気がするが、推定値は大体同じ
+- 残差のACF, PACF共に2次以上で有意なため、残差に系列相関の存在が示唆される。よってAR(1)モデルは不適当と考えられる。
+  - PACFで2次に尖りがあるため、AR(2)項の存在が考えられる。
+- 修正Q統計量についてもQ8の時点でp値が小さく残差に系列相関が無いという帰無仮説が棄却されてしまう。
+  
+
+## (c)
+ARMA(1, 1)モデルを推定すると、次の結果が得られることを確認せよ。  
+    yt = 0.183(1.15)yt-1 + 0.510(3.64)et-t + et  
+このモデルが不適当であることを示せ。修正Q統計量を調べよ。  
+
+```{r}
+arma11 <- arima(SIM2[, y3], c(1, 0, 1), include.mean = FALSE)
+print(arma11)
+
+# 修正Q統計量
+Q_stat <- list(
+  Q8 = Box.test(arma11$residuals, lag = 8, type = "Ljung-Box")$statistic,
+  Q8_pvalue = Box.test(arma11$residuals, lag = 8, type = "Ljung-Box")$p.value,
+  Q16 = Box.test(arma11$residuals, lag = 16, type = "Ljung-Box")$statistic,
+  Q16_pvalue = Box.test(arma11$residuals, lag = 16, type = "Ljung-Box")$p.value,
+  Q24 = Box.test(arma11$residuals, lag = 24, type = "Ljung-Box")$statistic,
+  Q24_pvalue = Box.test(arma11$residuals, lag = 24, type = "Ljung-Box")$p.value
+)
+print(Q_stat)
+```
+
+修正Q統計量がlag8, 16でp値が5%を切り、残差に系列相関がないという帰無仮説を棄却してしまう。  
+よってARMA(1, 1)モデルは不適当であると考えられる。  
+
+
+## (d)
+AR(2)モデルを推定せよ。係数の推定値が真の係数と一致していることを確認せよ。  
+
+```{r}
+ar2 <- arima(SIM2[, y3], c(2, 0, 0), include.mean = FALSE)
+print(ar2)
+
+# 残差のACF
+acf(ar2$residuals)
+
+# 残差のPACF
+pacf(ar2$residuals)
+
+# 修正Q統計量
+Q_stat <- list(
+  Q8 = Box.test(ar2$residuals, lag = 8, type = "Ljung-Box")$statistic,
+  Q8_pvalue = Box.test(ar2$residuals, lag = 8, type = "Ljung-Box")$p.value,
+  Q16 = Box.test(ar2$residuals, lag = 16, type = "Ljung-Box")$statistic,
+  Q16_pvalue = Box.test(ar2$residuals, lag = 16, type = "Ljung-Box")$p.value,
+  Q24 = Box.test(ar2$residuals, lag = 24, type = "Ljung-Box")$statistic,
+  Q24_pvalue = Box.test(ar2$residuals, lag = 24, type = "Ljung-Box")$p.value
+)
+print(Q_stat)
+```
+
+- 真の係数とおおよそ同じ値が得られた。
+- 残差のACF, PACFもおおよそ有意なlagが存在しておらず、残差に系列相関が無いことが確認される。
+  - lag16が有意であるため、MA16項をモデルに加えることを考慮するかもしれない。
+- 修正Q統計量のp値は残差に系列相関が無いという帰無仮説を有意水準5%では棄却できない。この点からも残差に系列相関が残っていないことが確認できる。

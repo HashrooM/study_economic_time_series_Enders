@@ -1,0 +1,137 @@
+---
+title: "第2章 練習問題[12]"
+output: github_document
+---
+
+# [12]
+QUARTERLY.XLSには米国の金利データ（1960Q1 ~ 2021Q4）が含まれる。
+スプレッドは、長期金利 r5 と短期金利 tbill の差である。
+スプレッドを AR(7), ARMA(1, 1), ARMA(2, 1), ARMA(2, (1, 7))モデルで推定し、
+2.10の結果を再現せよ。
+（ただし、標本期間は1961Q4 ~ 2021Q4で統一すること。）  
+
+
+## プロット、ACF、PACF
+まずは金利スプレッドの時系列プロット、ACF、PACFを確認する。  
+
+```{r}
+library(data.table)
+library(dplyr)
+library(ggplot2)
+
+QUARTERLY <- fread("../data/QUARTERLY.csv")
+
+# データのインデックス列に列名が無いためtimeを列名とする
+QUARTERLY <- dplyr::rename(QUARTERLY, Q = V1)
+
+# 金利スプレッド
+# 1961Q4以降に絞り込み
+r5_tbill_spread <- QUARTERLY %>%
+                   slice(8:nrow(.)) %>% 
+                   select(Q, r5, tbill) %>% 
+                   mutate(spread = r5 - tbill) %>% 
+                   select(Q, spread)
+ts_spread <- ts(r5_tbill_spread$spread, start = c(1961, 1), frequency = 4)
+
+# spreadをプロット
+ts.plot(ts_spread)
+
+# ACF
+acf(r5_tbill_spread[, spread])
+
+# PACF
+pacf(r5_tbill_spread[, spread])
+```
+
+- 時系列プロットから、おおよそ定常時系列であるように見える。
+- ACFが指数に比べるとゆっくり減衰しているので、純粋なARモデルとは考えにくい。
+- PACFが2, 4, 6, 9あたりで有意であるため、これらのlagを持つARモデルの成分を含む可能性がある。
+
+## AR(7)
+
+```{r}
+ar7 <- arima(ts_spread, c(7, 0, 0))
+print(ar7)
+
+print(
+  list(
+    # 推定された分散 * データ数でSSRを計算
+    SSR = ar7$sigma2 * ar7$nobs,
+    AIC = AIC(ar7),
+    BIC = BIC(ar7),
+    # Box.testのLjung-Boxの統計量として修正Q統計量と修正Q統計量のp値を算出
+    Q4 = Box.test(ar7$residuals, lag = 4, type = "Ljung-Box")$statistic,
+    Q8 = Box.test(ar7$residuals, lag = 8, type = "Ljung-Box")$statistic,
+    Q12 = Box.test(ar7$residuals, lag = 12, type = "Ljung-Box")$statistic
+  )
+)
+```
+
+書籍のa0が上記のinterceptに対応することに注意する。  
+AIC, BICは書籍と定義が異なるので値も異なる。（Rの定義はそのうち調べる。そのうち...）  
+他は書籍の値と似たような結果が得られた。  
+
+
+## ARMA(1, 1)
+
+```{r}
+arma11 <- arima(ts_spread, c(1, 0, 1))
+print(arma11)
+
+print(
+  list(
+    # 推定された分散 * データ数でSSRを計算
+    SSR = arma11$sigma2 * arma11$nobs,
+    AIC = AIC(arma11),
+    BIC = BIC(arma11),
+    # Box.testのLjung-Boxの統計量として修正Q統計量と修正Q統計量のp値を算出
+    Q4 = Box.test(arma11$residuals, lag = 4, type = "Ljung-Box")$statistic,
+    Q8 = Box.test(arma11$residuals, lag = 8, type = "Ljung-Box")$statistic,
+    Q12 = Box.test(arma11$residuals, lag = 12, type = "Ljung-Box")$statistic
+  )
+)
+```
+
+
+## ARMA(2, 1)
+
+```{r}
+arma21 <- arima(ts_spread, c(2, 0, 1))
+print(arma21)
+
+print(
+  list(
+    # 推定された分散 * データ数でSSRを計算
+    SSR = arma21$sigma2 * arma21$nobs,
+    AIC = AIC(arma21),
+    BIC = BIC(arma21),
+    # Box.testのLjung-Boxの統計量として修正Q統計量と修正Q統計量のp値を算出
+    Q4 = Box.test(arma21$residuals, lag = 4, type = "Ljung-Box")$statistic,
+    Q8 = Box.test(arma21$residuals, lag = 8, type = "Ljung-Box")$statistic,
+    Q12 = Box.test(arma21$residuals, lag = 12, type = "Ljung-Box")$statistic
+  )
+)
+```
+
+
+## ARMA(2, (1, 7))
+
+```{r}
+arma217 <- arima(ts_spread, c(2, 0, 7),
+                  transform.pars = FALSE,
+                  fixed = c(NA, NA, NA, 0, 0, 0, 0, 0, NA, NA))
+print(arma217)
+
+print(
+  list(
+    # 推定された分散 * データ数でSSRを計算
+    SSR = arma217$sigma2 * arma217$nobs,
+    AIC = AIC(arma217),
+    BIC = BIC(arma217),
+    # Box.testのLjung-Boxの統計量として修正Q統計量と修正Q統計量のp値を算出
+    Q4 = Box.test(arma217$residuals, lag = 4, type = "Ljung-Box")$statistic,
+    Q8 = Box.test(arma217$residuals, lag = 8, type = "Ljung-Box")$statistic,
+    Q12 = Box.test(arma217$residuals, lag = 12, type = "Ljung-Box")$statistic
+  )
+)
+```
