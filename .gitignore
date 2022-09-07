@@ -13,5 +13,3 @@ RCode/
 # setting files
 .env
 
-# Rmd file
-*.Rmd
