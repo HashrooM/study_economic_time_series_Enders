@@ -1,0 +1,116 @@
+---
+title: "第3章 練習問題[7]"
+output: github_document 
+---
+
+# [7]
+`ARCH.XLS` の1列目の系列yはモデル  
+  yt = 0.9yt-1 + et,  
+  et = vt(1 + 0.8 et-1^2)^(1/2)  
+から発生させたデータである。これを調べると、標本平均は 0.263、標本標準偏差は 4.894、
+最小値、最大値はそれぞれ -10.8, 15.15 となる。  
+
+```{r}
+# まずはプロットしてみて基本統計量を計算してみる
+library(data.table)
+library(ggplot2)
+
+ARCH <- fread("../data/ARCH.csv")
+# とりあえずindex列を付け加えておく
+ARCH$idx <- 1:nrow(ARCH)
+print(head(ARCH))
+
+# plot
+g <- ggplot(data = ARCH, aes(x = idx, y = y)) +
+     geom_line()
+plot(g)
+
+# 基本統計量
+print(list(
+  mean = mean(ARCH$y),
+  std = sqrt(var(ARCH$y)),
+  max = max(ARCH$y),
+  min = min(ARCH$y)
+))
+```
+
+- プロットから明らかに不均一分散が生じている
+
+
+## (a)
+OLS推定をすると、以下の結果が得られることを確認せよ。  
+    yt = 0.944(26.51) yt-1 + et  
+
+```{r}
+# AR(1)モデルで推定する
+ar1 <- arima(ARCH$y, c(1, 0, 0), include.mean = FALSE)
+print(ar1)
+```
+
+- おおよそ書籍と同じ結果が得られた
+
+
+## (b)
+残差の標本ACF, PACFを求めよ。修正Q統計量を用いて系列相関があるか確認せよ。
+
+```{r}
+# ACF
+acf(ar1$residuals)
+
+# PACF
+pacf(ar1$residuals)
+
+# とりあえずlag5, lag10で修正Q統計量を計算してみる
+print(list(
+  Q5_pval = Box.test(ar1$residuals, lag = 5, type = "Ljung-Box")$p.value,
+  Q10_pval = Box.test(ar1$residuals, lag = 10, type = "Ljung-Box")$p.value
+))
+```
+
+- ACF, PACF, 修正Q統計量とも系列相関がないことを示している。
+
+
+## (c)
+残差2乗の標本ACF, PACFを求めよ。ARCH効果が無いと言えるか。
+
+```{r}
+# ACF
+acf(ar1$residuals^2)
+
+# PACF
+pacf(ar1$residuals^2)
+```
+
+- 残差2乗のACFはlag1, lag8で有意であるため、ARCH効果が存在する可能性がある
+
+
+## (c)
+残差2乗を1期前の残差2乗でOLS推定せよ。LM検定をすると TR^2 = 22.03となることを確認せよ。
+
+```{r}
+library(dplyr)
+res2 <- as.vector(ar1$residuals^2)
+df <- data.frame(res2 = res2) %>% mutate(res2_lag1 = lag(res2))
+
+res_lag1_results <- lm(res2 ~ res2_lag1, df)
+summary(res_lag1_results)
+```
+
+- TR^2 = 100 * 0.24 = 24で値としては大きい。
+  - 実際、F統計量のp値も小さく、上記の回帰式の係数は有意であるため、ARCH効果が存在する可能性がある。
+
+
+## (d)
+ARCH(1)モデルを推定せよ。以下の結果が得られることを確認せよ。  
+    yt = 0.886(32.79)yt-1 + et,  
+    ht = 1.19(4.02) + 0.663(2.89)et-1^2  
+    
+```{r}
+library(fGarch)
+
+arch1 <- garchFit(formula = ~ arma(1, 0) + garch(1, 0), data = ARCH$y,
+                  include.mean = FALSE, trace = FALSE)
+print(arch1)
+```
+
+- おおよそ書籍と同じ結果が得られた。
