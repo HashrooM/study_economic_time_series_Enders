@@ -13,11 +13,9 @@ ENV TZ JST-9
 # キャッシュクリア
 RUN apt-get clean
 
-# 時系列分析用のRライブラリインストール
-RUN R -e "install.packages('zoo')" \
-  && R -e "install.packages('forecast')" \
-  && R -e "install.packages('tsibble')" \
-  && R -e "install.packages('markdown')"
+# 必要なRライブラリインストール
+RUN R -e "install.packages('markdown')" \
+    && R -e "install.packages('fGarch')"
 
 # ワーキングディレクトリ変更
 WORKDIR /home/rstudio
