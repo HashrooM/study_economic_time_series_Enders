@@ -1,0 +1,146 @@
+---
+title: "第3章 練習問題[8]"
+output: github_document 
+---
+
+# [8]
+`ARCH.XLS` の2列目の系列 y_m はARCH-M 過程から発生させたデータである。  
+
+```{r}
+# まずはデータを基本統計量を算出してプロットする
+library(data.table)
+library(ggplot2)
+
+ARCH <- fread("../data/ARCH.csv")
+ARCH_ym <- ARCH$y_m
+
+# 基本統計量とか
+print(list(
+  len = length(ARCH_ym),
+  mean = mean(ARCH_ym),
+  std = sqrt(var(ARCH_ym)),
+  max = max(ARCH_ym),
+  min = min(ARCH_ym)
+))
+
+# プロット
+plot(1:length(ARCH_ym), ARCH_ym, type = "l")
+
+# ACF
+acf(ARCH_ym)
+
+# PACF
+pacf(ARCH_ym)
+```
+
+- プロットから平均は期間を通して一定っぽいが、不均一分散が生じている
+  - 細かく見ると、分散が大きいときにymの値も大きくなっている。ARCH-M効果がある可能性がある
+- ACFはlag0以外で小さな値を取っているのでεt の誤差項のみの可能性がある
+  - 一方でlag3, lag6あたりで有意なため、これらのlagを含んだモデルを考慮しても良さそう
+
+
+## (a)
+ARCH-M過程を推定し、以下の結果を確認せよ。  
+yt = 0.908(14.05) + 0.625(1.79)ht + et  
+ht = 0.108(4.02) + 0.597(e_t-1)^2  
+
+```{r}
+# ARCH-Mを推定するためには rugarch パッケージが必要そう
+library(rugarch)
+
+arch_m_MA1 <- ugarchspec(mean.model = list(armaOrder = c(0, 0), archm = TRUE, archpow = 2),
+                         variance.model = list(garchOrder = c(1, 0)))
+fit_arch_m_MA1 <- ugarchfit(arch_m_MA1, data = ARCH_ym)
+
+fit_arch_m_MA1
+```
+
+- おおよそ書籍と同じ結果が得られた
+
+
+## (b)
+推定された{et}系列のACFとPACFを調べよ。この系列は適当と言えるか。もし不適当ならARCH-Mの他の定式化を試してみよ。
+
+残差の系列相関をチェックする。
+
+```{r}
+# ARCH系のモデル診断は標準化残差を用いる点に注意。P.151参照
+# 残差を標準化するために、standardize = T のオプションをつける
+res <- as.vector(residuals(fit_arch_m_MA1, standardize = T))
+
+# 残差のACF
+acf(res)
+
+# 残差のPACF
+pacf(res)
+
+# 残差2乗のACF
+acf(res^2)
+
+# 残差2乗のPACF
+pacf(res^2)
+```
+
+- 残差のACF, PACFにおいてlag6, lag16が有意であるため、系列相関が残っていると考えられる
+- 残差2乗にも系列相関が残っている
+
+他のモデルを試してみる。  
+よく使われるらしいGARCH(1, 1)を試してみる。
+
+```{r}
+arch_m_garch11 <- ugarchspec(mean.model = list(armaOrder = c(0, 0), archm = T, archpow = 2),
+                             variance.model = list(garchOrder = c(1, 1)))
+fit <- ugarchfit(arch_m_garch11, data = ARCH_ym)
+print(fit)
+
+# ARCH系のモデル診断は標準化残差を用いる点に注意。P.151参照
+# 残差を標準化するために、standardize = T のオプションをつける
+res <- as.vector(residuals(fit, standardize = T))
+
+# 残差のACF
+acf(res)
+
+# 残差のPACF
+pacf(res)
+
+# 残差2乗のACF
+acf(res^2)
+
+# 残差2乗のPACF
+pacf(res^2)
+```
+
+- AIC, BIDが改善しており、モデルの当てはまりが良くなっていることがわかる
+- 残差2乗から系列相関が消えており、GARCH(1, 1)は分散をうまくモデル化できていると考えられる
+- 一方、残差にはまだ系列相関が残っている
+
+残差はうまくモデル化できていると判断し、平均をARMA過程でモデル化する。ARMAの次数は試行錯誤してみる。  
+さらに、GARCH(1, 1)の係数の和が1に近いと考え、iGARCHモデルにしてみる。
+
+```{r}
+# ARMA(3, 3)が良さそう。本当はet-6の項だけを入れたかったが方法がわからなかった...
+m <- ugarchspec(mean.model = list(armaOrder = c(3, 3), archm = T, archpow = 2),
+                             variance.model = list(garchOrder = c(1, 1), model = "iGARCH"))
+fit <- ugarchfit(m, data = ARCH_ym)
+print(fit)
+
+# ARCH系のモデル診断は標準化残差を用いる点に注意。P.151参照
+# 残差を標準化するために、standardize = T のオプションをつける
+res <- as.vector(residuals(fit, standardize = T))
+
+# 残差のACF
+acf(res)
+
+# 残差のPACF
+pacf(res)
+
+# 残差2乗のACF
+acf(res^2)
+
+# 残差2乗のPACF
+pacf(res^2)
+```
+
+- BICは若干悪化したが、AICが改善し、残差の系列相関も小さくなった。モデルが改善したと言える
+- GARCHの次数をいじってみたが、残差の系列相関はほとんど変化しなかった
+  - 残差の系列相関は平均のモデルへの依存性が高いものと考えられる
