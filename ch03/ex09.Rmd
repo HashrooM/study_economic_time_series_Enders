@@ -22,7 +22,7 @@ library(dplyr)
 RGDP <- fread("../data/RGDP.csv")
 # データのインデックスに列名が無いため日付dateとして設定する
 RGDP <- dplyr::rename(RGDP, date = V1)
-# timeを日付に変換
+# dateを日付に変換
 RGDP$date <- as.Date(RGDP$date)
 
 # GDP成長率を算出
@@ -104,5 +104,91 @@ print(results_ar1_arch1)
 `0.000022 + 0.000088 = 1.1 * 10^(-4)` で、1984年以降のGDP成長率は、 `0.000022 = 2.2 * 10^(-5)` となる。  
 1/5になっているので75%ほど変化した計算になる。  
 
-ダミー変数の定義で結果が変わるのはほんとに謎。数値がデカい方をダミー変数 1 にした方が良いのか？  
+ダミー変数の定義で結果が変わるのはほんとに謎。ダミー変数の係数が正になるように設定した方が良いのか？  
 この辺りは試行錯誤が必要なのかもしれない...  
+
+
+## (b)
+金融危機を表すダミー変数をD2とする。これは2007Q3までを0、それ以降は1となるダミー変数である。  
+分散式にD1とD2を入れたとき、金融危機は分散を有意に増加させたか述べよ。  
+
+どうもダミー変数の係数が正になったほうが良いっぽい。今回のD2の定義なら大丈夫そう。  
+
+```{r}
+RGDP$D2 <- 1
+RGDP$D2[1:which(RGDP$date == as.Date("2007-10-01"))] = 0
+
+ar1_arch1 <- ugarchspec(mean.model = list(armaOrder = c(1, 0)),
+                        variance.model = list(garchOrder = c(1, 0), external.regressors = as.matrix(select(RGDP, D1, D2))))
+results_ar1_arch1 <- ugarchfit(ar1_arch1, RGDP$rgdp_growth, solver = "gosolnp")
+
+print(results_ar1_arch1)
+```
+
+D2の係数は有意となっていないため、金融危機は分散を増加させたとは言えない。  
+金融危機の効果は一時的であったと言える。  
+
+
+## (c)
+実質消費(rcons) と実質投資(rinv) の変化率を3.4の方法で分析し、1984Q1以降にボラティリティが変化しているか確認せよ。  
+
+### 実質消費
+
+```{r}
+RGDP <- fread("../data/RGDP.csv")
+# データのインデックスに列名が無いため日付dateとして設定する
+RGDP <- dplyr::rename(RGDP, date = V1)
+# timeを日付に変換
+RGDP$date <- as.Date(RGDP$date)
+
+# rcons成長率を算出
+RGDP$rcons_growth <- c(NA, diff(log(RGDP$rcons)))
+
+# ダミー変数作成
+RGDP$D1 <- 0
+RGDP$D1[1:which(RGDP$date == as.Date("1983-10-01"))] = 1
+
+# NA除去
+RGDP <- RGDP[RGDP$date >= as.Date("1947-04-01")]
+
+# モデル推定
+ar1_arch1 <- ugarchspec(mean.model = list(armaOrder = c(1, 0)),
+                        variance.model = list(garchOrder = c(1, 0), external.regressors = matrix(RGDP$D1)))
+results_ar1_arch1 <- ugarchfit(ar1_arch1, RGDP$rcons_growth, solver = "gosolnp")
+
+print(results_ar1_arch1)
+```
+
+ダミー変数の係数が有意であるため、1984Q1以降は実質消費の分散を減少させたと言える。  
+ここでもダミー変数の定義が書籍と1, 0が逆なことに注意。  
+
+
+### 実質投資
+
+```{r}
+RGDP <- fread("../data/RGDP.csv")
+# データのインデックスに列名が無いため日付dateとして設定する
+RGDP <- dplyr::rename(RGDP, date = V1)
+# timeを日付に変換
+RGDP$date <- as.Date(RGDP$date)
+
+# rinv成長率を算出
+RGDP$rinv_growth <- c(NA, diff(log(RGDP$rinv)))
+
+# ダミー変数作成
+RGDP$D1 <- 0
+RGDP$D1[1:which(RGDP$date == as.Date("1983-10-01"))] = 1
+
+# NA除去
+RGDP <- RGDP[RGDP$date >= as.Date("1947-04-01")]
+
+# モデル推定
+ar1_arch1 <- ugarchspec(mean.model = list(armaOrder = c(1, 0)),
+                        variance.model = list(garchOrder = c(1, 0), external.regressors = matrix(RGDP$D1)))
+results_ar1_arch1 <- ugarchfit(ar1_arch1, RGDP$rinv_growth, solver = "gosolnp")
+
+print(results_ar1_arch1)
+```
+
+ダミー変数の係数が有意であるため、1984Q1以降は実質投資の分散を減少させたと言える。  
+ここでもダミー変数の定義が書籍と1, 0が逆なことに注意。  
