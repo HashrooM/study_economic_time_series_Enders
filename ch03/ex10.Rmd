@@ -1,0 +1,213 @@
+---
+title: "第3章 練習問題[10]"
+output: github_document
+---
+
+# [10]
+`NYSE.XLS`の日次収益率rtを用いて3.9の推定結果を再現せよ。  
+
+## データのチェック
+まずはデータを基本統計量、プロットを見る。
+
+```{r}
+library(data.table)
+library(ggplot2)
+library(dplyr)
+
+NYSE <- fread("../data/NYSE.csv")
+# データのインデックスに列名が無いため日付dateとして設定する
+NYSE <- dplyr::rename(NYSE, date = V1)
+# dateを日付に変換
+NYSE$date <- as.Date(NYSE$date, format = "%Y:%m:%d")
+
+# プロット
+# 結局ggplot使うのが楽そう。慣れてるし
+g <- ggplot(data = NYSE, aes(x = date, y = r)) +
+     geom_line() +
+     scale_x_date(breaks = "1 years", date_labels = "%Y")
+plot(g)
+
+# 基本統計量
+print(list(
+  len = nrow(NYSE),
+  mean = mean(NYSE$r),
+  std = sqrt(var(NYSE$r)),
+  max = max(NYSE$r),
+  min = min(NYSE$r)
+))
+```
+
+- サンプルサイズが大きいことに注意。ACFなどを見ると有意になる可能性が高い
+- 収益率は平均はほぼ0だが、分散が大きく変わっているように見える
+  - 一方で、分散が大きくなると平均も大きくなるARCH-M効果は見た目では認められない
+
+ACF, PACFをチェックする。  
+
+```{r}
+# ACF
+acf(NYSE$r)
+
+# PACF
+pacf(NYSE$r)
+```
+
+- ACF, PACFは値としては小さいが、サンプルサイズが大きいためか有意なlagがいくつかある
+
+
+## 平均のモデル
+書籍ではAR(2)モデルを採用しているのでここでもそれを用いる。  
+`forecast::auto.arima()` などを用いればこの結果も再現可能と思われる。  
+
+```{r}
+ar2 <- arima(NYSE$r, c(2, 0, 0))
+print(ar2)
+
+# 残差のACF
+acf(ar2$residuals)
+
+# 残差のPACF
+pacf(ar2$residuals)
+```
+
+- 推定結果は書籍とほぼ同じ
+- ACF, PACFも小さい値でほとんど有意でない
+
+
+## ARCH効果の検定
+AR(2)モデルの残差2乗でLM検定を行い、ARCH効果が存在するかを確かめる。  
+
+```{r}
+# 書籍ではAR(5)でLM検定を行っているのでここでもそれを用いる
+# F統計量をデフォルトで出してくれるlmを使う
+res2 <- as.vector(ar2$residuals^2)
+df <- data.frame(
+  et = res2,
+  etlag1 = lag(res2),
+  etlag2 = lag(res2, n = 2),
+  etlag3 = lag(res2, n = 3),
+  etlag4 = lag(res2, n = 4),
+  etlag5 = lag(res2, n = 5)
+)
+
+LM_test <- lm(et ~ etlag1 + etlag2 + etlag3 + etlag4 + etlag5, df)
+summary(LM_test)
+```
+
+ARCH効果が無いという帰無仮説が帰無仮説が棄却されたため、ARCH効果をモデルに含めることを考える。  
+
+
+## 分散を含めたモデル化
+倹約的なモデルとしてiGARCHモデルを推定する。  
+また、株価収益率の分布がロングテールであることを考慮して、尤度を正規分布ではなくt分布で算出する。  
+
+```{r}
+library(rugarch)
+
+igarch <- ugarchspec(mean.model = list(armaOrder = c(2, 0)),
+                     variance.model = list(garchOrder = c(1, 1), model = "iGARCH"),
+                     distribution.model = "std")
+results_igarch <- ugarchfit(igarch, NYSE$r)
+
+print(results_igarch)
+```
+
+- おおよそ書籍と同じ結果が得られた
+
+
+## 診断
+推定したIGARCH(1, 1)モデルの診断を行う。  
+まずは標準化残差の診断を行う。  
+
+```{r}
+res <- as.vector(residuals(results_igarch, standardize = T))
+
+# 修正Q統計量
+print(list(
+  Q5_pval = Box.test(res, lag = 5, type = "Ljung-Box")$p.value,
+  Q10_pval = Box.test(res, lag = 10, type = "Ljung-Box")$p.value,
+  Q15_pval = Box.test(res, lag = 15, type = "Ljung-Box")$p.value
+))
+
+# 残差のACF
+acf(res)
+
+# 残差のPACF
+pacf(res)
+```
+
+- 修正Q統計量、ACF、 PACFから残差に系列相関は残っていないと考えられる
+よってiGARCH(1, 1)モデルは適当と言える。  
+
+次に、残差2乗を用いて診断する。  
+
+```{r}
+# 残差2乗についてLM検定を行う
+res2 <- res^2
+
+# 書籍と同様、n=2でLM検定
+df <- data.frame(
+  et = res2,
+  etlag1 = lag(res2),
+  etlag2 = lag(res2, n = 2)
+)
+
+LM_test <- lm(et ~ etlag1 + etlag2, df)
+summary(LM_test)
+
+# 残差2乗のACFもチェックする
+acf(res2)
+```
+
+- LM検定では残差2乗に系列相関が存在するという帰無仮説が棄却されてしまうが、サンプルサイズが大きいためあり得る結論である
+  - より複雑はモデルとすることも考えられるが、ここではiGARCH(1, 1)で十分とする
+- 残差2乗のACFはどれも値としては小さく、ほとんど有意ではない
+
+
+## レバレッジ効果の調査
+レバレッジ効果が存在しているかを調べる。  
+レバレッジ効果が無ければ、 `s_t^2` を `s_t` で回帰しても回帰係数は0となる。これを用いて検定する。  
+
+```{r}
+df <- data.frame(
+  et_sq = res2,
+  etlag1 = lag(res),
+  etlag2 = lag(res, n = 2)
+)
+lev_test <- lm(et_sq ~ etlag1 + etlag2, df)
+summary(lev_test)
+```
+
+F統計量が有意なので、レバレッジ効果が認められる。  
+符号バイアス検定については省略。  
+
+
+## 非対称モデル
+EGARCHモデルで推定する。  
+
+```{r}
+egarch <- ugarchspec(mean.model = list(armaOrder=c(2, 0)),
+                     variance.model = list(model = "eGARCH", garchOrder = c(1, 1)),
+                     distribution.model = "std")
+results_egarch <- ugarchfit(egarch, NYSE$r)
+print(results_egarch)
+```
+
+書籍とほぼ同じ結果が得られた。  
+この推定結果から負のショックの方が正のショックに比べて大きく条件付き分散を増加させることが分かった。
+
+推定された条件付き分散を図示する。  
+
+```{r}
+hhat <- as.vector(results_egarch@fit$sigma^2)
+df <- data.frame(
+  date = NYSE$date,
+  hhat = hhat
+)
+
+g <- ggplot(data = df, mapping = aes(x = date, y = hhat)) +
+     geom_line() +
+     scale_x_date(breaks = "1 years", date_labels = "%Y")
+plot(g)
+```
+
+2008年の金融危機後に分散が大きくなっていることがわかる。
