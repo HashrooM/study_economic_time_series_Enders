@@ -16,7 +16,8 @@ RUN apt-get clean
 # 必要なRライブラリインストール
 RUN R -e "install.packages('markdown')" \
     && R -e "install.packages('fGarch')" \
-    && R -e "install.packages('rugarch')"
+    && R -e "install.packages('rugarch')" \
+    && R -e "install.packages('urca')"
 
 # ワーキングディレクトリ変更
 WORKDIR /home/rstudio
