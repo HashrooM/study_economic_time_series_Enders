@@ -1,0 +1,113 @@
+---
+title: "第4章 練習問題[6]"
+output: github_document
+---
+
+# [6]
+`QUARTERLY.XLS` は2.10で用いた米国の金利データが含まれる。  
+金利スプレッド `s` は長期金利 `r5` から短期金利 `t-bill` を引いたものと定義される。
+
+```{r}
+library(data.table)
+library(ggplot2)
+library(dplyr)
+
+QUARTERLY <- fread("../data/QUARTERLY.csv")
+# クオーターを表す列に列名が無いのでQと設定
+QUARTERLY <- dplyr::rename(QUARTERLY, Q = V1)
+# 金利スプレッドs列を作成
+QUARTERLY <- QUARTERLY %>% mutate(s = r5 - tbill)
+
+# 金利スプレッドをプロット
+ts.plot(ts(QUARTERLY$s, start = 1960, frequency = 4))
+```
+
+## (a)
+モデル
+
+$$
+\Delta s_t = a_0 + \gamma s_{t-1} + \sum \beta_i \Delta s_{t-i+1} + \epsilon_t
+$$
+
+を推定せよ。ただし、ラグ次数はAIC, BIC, 一般化からの特定法によって選択せよ。
+
+### AIC
+
+```{r}
+library(urca)
+
+# selectlags = "AIC"とすることでAIC基準でラグ次数を選択
+# lags = 10で探索するラグの最大値を10に設定
+df_test_aic <- ur.df(QUARTERLY$s, type = "drift", lags = 10, selectlags = "AIC")
+summary(df_test_aic)
+```
+
+AICを用いるとラグ次数は9が選択される。
+
+
+### BIC
+
+```{r}
+df_test_bic <- ur.df(QUARTERLY$s, type = "drift", lags = 10, selectlags = "BIC")
+summary(df_test_bic)
+```
+
+BIC基準では、ラグ次数は1が選ばれる。  
+(AICと違いすぎ...？こんなもんなの...？)  
+
+
+### 一般化からの特定法
+`lags`引数を大きい値から順に小さくしていき、最大のラグが有意になった時のラグ次数を選択する。
+
+```{r}
+lag9 <- ur.df(QUARTERLY$s, type = "drift", lags = 9)
+summary(lag9)
+```
+
+lag9は10%有意水準で有意だが、5%有意水準では有意でない。
+
+```{r}
+lag8 <- ur.df(QUARTERLY$s, type = "drift", lags = 8)
+summary(lag8)
+```
+
+lag8は5%有意水準で有意。よって一般化からの特定法ではラグ次数8が選択される。
+
+
+## (b)
+ラグ次数として8を用いて推定する。この時、スプレッドは定常と言えるか。
+
+(a)の一般化からの特定法でラグ次数8のモデルを推定し、ADF検定を行っている。  
+この結果を見ると、 $\gamma$ の値は有意であるため、金利スプレッドは単位根を持たず、定常であると言える。  
+
+
+## (c)
+`r5` にADF検定をしよう（ラグ次数は7）。この時、r5は定常か。
+
+```{r}
+adf_r5 <- ur.df(QUARTERLY$r5, type = "drift", lags = 7)
+summary(adf_r5)
+```
+
+$\gamma$の値が有意でないため、`r5` 系列は単位根を持つ。よって定常ではない。
+
+
+## (d)
+`t-bill` にADF検定をしよう（ラグ次数は11）。この時、`t-bill` は定常か。  
+
+```{r}
+adf_tbill <- ur.df(QUARTERLY$tbill, type = "drift", lags = 11)
+summary(adf_tbill)
+```
+
+$\gamma$ は有意でないため、 `tbill` 系列は単位根を持つ。よって定常ではない。  
+
+
+## (e)
+各金利は単位根を持っているにもかかわらず、スプレッドが定常になるのはなぜか。  
+理由として考えられることを述べよ。
+
+`r5` と `t-bill` が強い相関を持って動いているため。  
+
+
+
