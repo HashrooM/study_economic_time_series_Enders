@@ -1,0 +1,152 @@
+---
+title: "第4章 練習問題[7]"
+output: github_document
+---
+
+# [7]
+## (a)
+
+```{r}
+library(data.table)
+library(dplyr)
+library(ggplot2)
+
+BREAK <- fread("../data/Break.csv")
+
+# 基本統計量など
+print(list(
+  len = nrow(BREAK),
+  mean = mean(BREAK$y1),
+  std = sqrt(var(BREAK$y1)),
+  max = max(BREAK$y1),
+  min = min(BREAK$y1)
+))
+```
+
+```{r}
+# プロット
+g <- ggplot(data = BREAK, mapping = aes(x = V1, y = y1)) +
+     geom_line()
+plot(g)
+```
+
+明らかに50期前後で構造変化が起きている。
+
+
+## (b)
+
+### ドリフト、確定トレンド両方なしモデル
+
+```{r}
+library(urca)
+
+no_drift_trend <- ur.df(BREAK$y1, type = "none", lags = 0)
+summary(no_drift_trend)
+```
+
+書籍の結果とほぼ一致している。
+
+
+### ドリフトモデル
+
+```{r}
+drift <- ur.df(BREAK$y1, type = "drift", lags = 0)
+summary(drift)
+```
+
+書籍の結果とほぼ一致している。
+
+
+### ドリフト、確定トレンド両方ありモデル
+
+```{r}
+drift_trend <- ur.df(BREAK$y1, type = "trend", lags = 0)
+summary(drift_trend)
+```
+
+書籍の結果とほぼ一致している。
+
+上記3モデルのいずれでも単位根が存在するという帰無仮説を棄却できず、系列 `y1` は階差定常であると判断されてしまう。
+
+
+## (c)
+
+```{r}
+g <- ggplot(data = BREAK, mapping = aes(x = V1, y = y2)) +
+     geom_line()
+plot(g)
+```
+
+こちらも50期以降に構造変化していると見られる。  
+図4.10の(a), (b)と比べると、(b)と似ている。
+
+
+## (d)
+### 水準
+```{r}
+acf(BREAK$y2)
+
+pacf(BREAK$y2)
+```
+
+
+### 階差
+
+```{r}
+acf(diff(BREAK$y2))
+
+pacf(diff(BREAK$y2))
+```
+
+- 水準のACFはゆっくり減衰しており、PACFはラグ1がほぼ1で他が有意でないほど小さい
+- 階差はACF, PACFともにどのラグもほぼ有意でないほど小さい
+
+以上から系列 `y2` は単位根過程であることが疑われる。
+
+
+## (e)
+
+```{r}
+y2_df_test <- ur.df(BREAK$y2, type = "trend", lags = 0)
+summary(y2_df_test)
+```
+
+書籍の結果とほぼ一致している。  
+`y2` の1次のラグの係数が有意でなく、単位根仮説を棄却できない。  
+よって系列 `y2` には単位根が含まれると考えられる。  
+
+
+## (f)
+
+```{r}
+# 構造変化点tauを階差が最も大きく変化する時点として推定する
+tau <- which(abs(diff(BREAK$y2)) == max(abs(diff(BREAK$y2)))) + 1
+
+# パルスDp
+Dp <- rep(0, nrow(BREAK))
+Dp[tau] <- 1
+
+# 水準変化Dl
+Dl <- rep(0, nrow(BREAK))
+Dl[tau:length(Dl)] <- 1
+
+# 目的変数 + 説明変数群のdf
+df <- data.frame(
+  y2 = BREAK$y2,
+  lag1 = lag(BREAK$y2),
+  t = BREAK$V1,
+  Dp = Dp,
+  Dl = Dl
+)
+
+# モデル推定
+perron_test <- lm(
+  formula = y2 ~ lag1 + t + Dp + Dl,
+  data = df
+)
+summary(perron_test)
+```
+
+1次のラグの係数が1に近く有意であるため、単位根を含むと考えられる。  
+また、 `Dp` が有意である一方 `Dl` は有意でないため、51期にパルスは含まれるが、水準変化は起きなかったと考えられる。  
+以上から、系列 `y2` は51期にパルスを受けた単位根過程であると考えられる。
