@@ -17,7 +17,8 @@ RUN apt-get clean
 RUN R -e "install.packages('markdown')" \
     && R -e "install.packages('fGarch')" \
     && R -e "install.packages('rugarch')" \
-    && R -e "install.packages('urca')"
+    && R -e "install.packages('urca')" \
+    && R -e "install.packages('plm')"
 
 # ワーキングディレクトリ変更
 WORKDIR /home/rstudio
