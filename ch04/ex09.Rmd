@@ -1,0 +1,67 @@
+---
+title: "第4章 練習問題[9]"
+output: github_document
+---
+
+# [9]
+## (a)
+
+系列 `Australia` についてDF-GLS検定を行う。他についても同様。
+
+```{r}
+library(readr)
+library(dplyr)
+library(urca)
+
+PANEL <- read_csv("../data/PANEL.csv")
+
+# ドリフトのみのモデルで検定する
+df_gls <- ur.ers(PANEL$Australia, type = "DF-GLS", model = "constant", lag.max = 10)
+summary(df_gls)
+```
+
+係数 $\gamma$ は有意でないため、単位根仮説を棄却できない。  
+
+
+## (b)
+
+`ERSTEST.XLS` の系列 `y` から `y_tilde`, `z1`, `z1`, `yd` を再現し、DF-GLS検定を行う。
+
+```{r}
+ERSTEST <- read_csv("../data/ERSTEST.csv")
+
+Yt <- ERSTEST$y
+
+# y_tildaを再現
+# Yt_tilda = Yt - a Yt-1で得られる
+# Ytにはトレンドが含まれると仮定し、 a = 1 - 13.5/T で求める
+alpha <- 1 - 13.5 / length(Yt)
+Yt_tilde <- Yt - alpha * dplyr::lag(Yt)
+Yt_tilde[1] = Yt[1]
+
+# z1tを再現
+z1t <- rep(1 - alpha, length(Yt))
+z1t[1] <- 1
+
+# z2tを再現
+z2t <- alpha + (1 - alpha) * seq(1, length(Yt))
+
+# Yt_tilde ~ z1t + z2tで回帰
+df <- data.frame(Yt_tilde = Yt_tilde, z1t = z1t, z2t = z2t)
+trend <- lm(formula = Yt_tilde ~ z1t + z2t + 0, data = df)
+
+# 回帰係数b1, b2を用いてトレンドを除去した系列Ydt = Yt - b1 - b2 tを再現
+b1 <- summary(trend)[["coefficients"]]["z1t", "Estimate"] 
+b2 <- summary(trend)[["coefficients"]]["z2t", "Estimate"] 
+Ydt <- Yt - b1 - b2 * seq(1, length(Yt))
+
+# Ydtを用いて、 diff(Ydt) ~ Ydt-1 を推定
+df <- data.frame(diff_Ydt = diff(Ydt), Ydt_1 = dplyr::lag(Ydt)[2:length(Ydt)])
+results <- lm(formula = diff_Ydt ~ Ydt_1 + 0, data = df)
+
+# DF-GLS検定結果
+summary(results)
+```
+
+`Ydt_1` の係数は有意であるため、帰無仮説 $\gamma = 0$ は棄却される。  
+よって系列 `Yt` には単位根が含まれないと判断される。
