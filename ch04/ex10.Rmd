@@ -1,0 +1,180 @@
+---
+title: "第4章 練習問題[10]"
+output: github_document
+---
+
+# [10]
+## (a)
+
+成長率について考えるため、 `rgdp` のlogを取った値でトレンドの傾きに変化が生じたことを仮定したペロン検定を行う。
+
+```{r}
+library(data.table)
+library(dplyr)
+
+RGDP <- fread("../data/RGDP.csv")
+setDF(RGDP)
+
+# logを取る
+lrgdp <- log(RGDP$rgdp)
+
+# 1973Q2で構造変化が起きたと仮定し、Dp, Dlを生成する
+## インデックス列idxを生成
+RGDP$idx <- seq(1, nrow(RGDP))
+## 1973Q2の行番号を取得
+change_point <- filter(RGDP, V1 == "1973-04-01")$idx
+
+## レベル変化
+Dl <- rep(0, nrow(RGDP))
+Dl[change_point:length(Dl)] <- 1
+
+## トレンド変化
+Dt <- seq(1, nrow(RGDP))
+Dt <- Dt - change_point
+Dt[1:change_point] <- 0
+
+## ペロン検定
+dYt <- c(NA, diff(lrgdp))
+df <- data.frame(
+  Yt = lrgdp,
+  Yt_1 = dplyr::lag(lrgdp),
+  t = RGDP$idx,
+  Dl = Dl,
+  Dt = Dt,
+  DYt_1 = dplyr::lag(dYt), # Yt_1だけでは残差に系列相関が残ったためこの項も入れる
+  DYt_2 = dplyr::lag(dplyr::lag(dYt)) # Yt_1だけでは残差に系列相関が残ったためこの項も入れる
+)
+trend_perron_test <- lm(
+  formula = Yt ~ Yt_1 + t + Dl + Dt + DYt_1 + DYt_2,
+  data = df
+)
+summary(trend_perron_test)
+```
+
+残差診断
+
+```{r}
+acf(trend_perron_test$residuals)
+
+pacf(trend_perron_test$residuals)
+```
+
+残差のACF, PACFにおいて系列相関認められないため、推定モデルは適切であると考えられる。  
+`Dt` の係数は有意であり、トレンドに構造変化があったと考えられる。
+
+
+## (b)
+
+## BN分解
+
+BN分解を行うために、まずはln(rgdp)の階差に最もフィットするARMA(p, q)を求める。  
+...が、書籍で既に ARMA(1, 0) を推定しているのでここでもそちらを用いる。
+
+```{r}
+lrgdp <- log(RGDP$rgdp)
+dlrgdp <- diff(lrgdp)
+
+# 書籍で推定しているのと同じ ARMA(1, 0)モデル
+fit_arima <- arima(dlrgdp, c(1, 0, 0))
+print(summary(fit_arima))
+
+# 残差診断
+acf(fit_arima$residuals)
+
+pacf(fit_arima$residuals)
+```
+
+lrgdpの階差について ARMA(1, 0) モデルを推定したが、残差診断からこのモデルで問題はないことが分かる。  
+次に推定されたモデルから各時点tについて s = $\infty$ 期先までの予測値を基に、トレンド成分と循環成分に分解する。  
+（書籍のp.249 例11を参照。訳注25）
+
+```{r}
+# 推定モデルの係数
+a1 <- coefficients(fit_arima)["ar1"]
+a0 <- coefficients(fit_arima)["intercept"]
+# MA過程に反転した際のドリフト項
+mu <- a0 / (1 - a1)
+
+# BN分解
+BNtrend <- NA
+BNcycle <- NA
+s = 100
+for(i in 2:length(dlrgdp)){
+  BNtrend[i] <- a1 / (1 - a1) * (dlrgdp[i] - mu) + lrgdp[i]
+  BNcycle[i] <- lrgdp[i] - BNtrend[i]
+}
+```
+
+
+### HP分解
+
+```{r}
+library(mFilter)
+
+HP_decompose <- hpfilter(lrgdp, freq = 1600, type = "lambda")
+HPtrend <- HP_decompose$trend
+HPcycle <- HP_decompose$cycle
+```
+
+
+### プロット
+
+GDPギャップとBN分解、HP分解の定常成分を図示する。
+
+```{r}
+library(ggplot2)
+
+# GDPギャップ
+gdpgap <- log(RGDP$rgdp / RGDP$potential) # 解答を見る限り、このままだとなぜかGDPギャップが2倍？
+gdpgap <- gdpgap / 2
+
+# グラフ
+df <- data.frame(
+  Qrtr = RGDP$V1[-1],
+  gdpgap = gdpgap[-1],
+  BNcycle = BNcycle,
+  HPcycle = HPcycle[-1]
+)
+g <- ggplot(data = df, mapping = aes(x = Qrtr)) +
+     geom_line(mapping = aes(y = gdpgap, colour = "GDPgap")) +
+     geom_line(mapping = aes(y = BNcycle, colour = "BNdecomp.")) +
+     geom_line(mapping = aes(y = HPcycle, colour = "HPdecomp.")) +
+     scale_x_date(breaks="5 years", date_labels = "%Y")
+plot(g)
+```
+
+書籍とほぼ同じ結果が得られた。  
+BN分解、HP分解の特徴は 書籍の4.12節例11を参照。  
+
+GDPギャップとの比較についてはHP分解の方が近い動きをしているように見える。
+
+
+## (c)
+
+$t$, `Dl`, `Dt`で `lrgdp` を回帰してそれをトレンドとする。
+
+```{r}
+df <- data.frame(
+  lrgdp = lrgdp,
+  t = RGDP$idx,
+  Dl = Dl,
+  Dt = Dt
+)
+trend <- lm(lrgdp ~ t + Dl + Dt, df)
+res <- as.vector(trend$residuals)
+
+# プロット
+df <- data.frame(
+  Qrtr = RGDP$V1,
+  gdpgap = gdpgap,
+  res = res
+)
+g <- ggplot(data = df, mapping = aes(x = Qrtr)) +
+     geom_line(mapping = aes(y = gdpgap, colour = "GDPgap")) +
+     geom_line(mapping = aes(y = res, colour = "residual")) +
+     scale_x_date(breaks="5 years", date_labels = "%Y")
+plot(g)
+```
+
+残差は景気循環に追随しているようには見えるが、ボラティリティが大きい。  
+また、2010年以降の金融危機からの回復を捉えられていない。
