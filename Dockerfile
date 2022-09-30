@@ -18,7 +18,8 @@ RUN R -e "install.packages('markdown')" \
     && R -e "install.packages('fGarch')" \
     && R -e "install.packages('rugarch')" \
     && R -e "install.packages('urca')" \
-    && R -e "install.packages('plm')"
+    && R -e "install.packages('plm')" \
+    && R -e "install.packages('mFilter')"
 
 # ワーキングディレクトリ変更
 WORKDIR /home/rstudio
