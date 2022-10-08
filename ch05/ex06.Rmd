@@ -1,0 +1,201 @@
+---
+title: "第5章 練習問題[6]"
+output: github_document
+---
+
+# [6]
+
+```{r}
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(vars)
+
+QUARTERLY <- read_csv("../data/QUARTERLY.csv")
+# 四半期の列名を付与
+QUARTERLY <- dplyr::rename(QUARTERLY, Qtr = ...1)
+
+# st系列作成
+s_t <- QUARTERLY$r5 - QUARTERLY$tbill
+# Δlip_t系列作成
+dlip_t <- diff(log(QUARTERLY$indprod))
+# Δur_t系列作成
+dur_t <- diff(QUARTERLY$unemp)
+```
+
+
+## (a)
+
+```{r}
+# 推定対象のデータフレーム作成
+# 1962Q3以降のデータのみ使用
+df <- data.frame(
+  QUARTERLY$Qtr[11:nrow(QUARTERLY)],
+  s = s_t[11:length(s_t)],
+  dlip = dlip_t[10:length(dlip_t)],
+  dur = dur_t[10:length(dur_t)]
+)
+
+# ラグ9のVARモデル推定
+var_lag9 <- VAR(df[, 2:4], p = 9, type = "const")
+summary(var_lag9)
+```
+
+```{r}
+# 残差保存
+var_lag9_res <- residuals(var_lag9)
+```
+
+`QUARTERLY`データは 1960Q1 から始まっている。  
+`indprot`, `unemp` については階差を取っているので、この時点で有効なデータは 1960Q2以降となる。  
+さらに、VARモデルで9次のラグまで取っているので、1960Q2 + 9期で有効なデータは 1962Q3以降となる。  
+
+
+## (b)
+
+```{r}
+# 残差分散共分散行列の行列式の対数
+log_det_covres_lag9 <- log(det(cov(var_lag9_res)))
+print(paste("log determinant of covariance matrix of residuals: ", as.character(log_det_covres_lag9)))
+
+# 対数尤度
+loglike_lag9 <- summary(var_lag9)$logLik
+print(paste("Log likelihood: ", as.character(loglike_lag9)))
+
+# AIC, BICを計算するためにVARモデルのパラメータ数を算出
+# n変数ラグp+定数項のVARモデルのパラメータ数は n^2 * p + n
+N <- 3^2 * 9 + 3
+# AIC
+print(paste("AIC = Tln(|covres|) + 2N: ", as.character(nrow(df) * log_det_covres_lag9 + 2 * N)))
+# BIC
+print(paste("BIC = Tln(|covres|) + Nln(T): ", as.character(nrow(df) * log_det_covres_lag9 + N * log(nrow(df)))))
+# AIC*
+print(paste("AIC* = -2ln(|L|)/T + 2N/T: ", as.character(-2 * loglike_lag9/nrow(df) + 2 * N/nrow(df))))
+# BIC*
+print(paste("BIC* = -2ln(|L|)/T + Nln(T)/T: ", as.character(-2 * loglike_lag9/nrow(df) + N * log(nrow(df))/nrow(df))))
+```
+
+
+## (c)
+
+```{r}
+# ラグ3のVARモデル推定
+var_lag3 <- VAR(df[, 2:4], p = 3, type = "const")
+# 残差保存
+var_lag3_res <- residuals(var_lag3)
+# 残差分散共分散行列の行列式の対数
+log_det_covres_lag3 <- log(det(cov(var_lag3_res)))
+# ラグ3のVARモデルの対数尤度
+loglike_lag3 <- summary(var_lag3)$logLik
+
+# ラグ9モデルのパラメータ数
+N_lag9 <- 3^2 * 9 + 3
+# ラグ3モデルのパラメータ数
+N_lag3 <- 3^2 * 3 + 3
+
+# AIC
+aic_lag9 <- nrow(df) * log_det_covres_lag9 + 2 * N_lag9
+aic_lag3 <- nrow(df) * log_det_covres_lag3 + 2 * N_lag3
+print(paste("AIC of lag9 = ", as.character(aic_lag9), "; AIC of lag3 = ", as.character(aic_lag3)))
+
+# BIC
+bic_lag9 <- nrow(df) * log_det_covres_lag9 + N_lag9 * log(nrow(df))
+bic_lag3 <- nrow(df) * log_det_covres_lag3 + N_lag3 * log(nrow(df))
+print(paste("BIC of lag9 = ", as.character(bic_lag9), "; BIC of lag3 = ", as.character(bic_lag3)))
+
+
+# AIC*
+aics_lag9 <- -2 * loglike_lag9 / nrow(df) + 2 * N_lag9 / nrow(df)
+aics_lag3 <- -2 * loglike_lag3 / nrow(df) + 2 * N_lag3 / nrow(df)
+print(paste("AIC* of lag9 = ", as.character(aics_lag9), "; AIC* of lag3 = ", as.character(aics_lag3)))
+
+
+# BIC
+bics_lag9 <- -2 * loglike_lag9 / nrow(df) + N_lag9 * log(nrow(df)) / nrow(df)
+bics_lag3 <- -2 * loglike_lag3 / nrow(df) + N_lag3 * log(nrow(df)) / nrow(df)
+print(paste("BIC* of lag9 = ", as.character(bics_lag9), "; BIC* of lag3 = ", as.character(bics_lag3)))
+```
+
+Rで実行するとどの評価指標を用いてもラグ3のモデルが選択された（AICはBICに比べると誤差のような差だが...）  
+
+AIC, BICを評価関数として用いる場合、同じデータ期間で比較しなければ異なる分析期間のモデル比較となってしまい、適切な比較でなくなってしまう。  
+
+
+## (d)
+
+尤度比検定量を $T(ln|\Sigma_3| - ln|\Sigma_9|)$ として$\chi^2$ 検定を行う。  
+$\chi^2$ 分布の自由度はラグ次数を9→3に制限することによって生じる制約なので、  
+今の場合単に減ったパラメータの数である。  
+よって、自由度は $(3^2 * 9 + 3) - (3^2 * 3 + 3) = 54$ となる。
+
+```{r}
+# 尤度比を求める
+LR <- nrow(df) * (log_det_covres_lag3 - log_det_covres_lag9)
+print(paste("LR = ", as.character(LR)))
+
+# χ^2分布の上側5%点
+print(paste("upper 5% point of chisq = ", as.character(qchisq(0.95, df = 54))))
+```
+
+ラグ3制約が成り立っている帰無仮説が棄却された。よってラグ3の制約は成り立っていないと判断される。  
+
+
+## (e)
+
+```{r}
+# 検定するラグ次数
+long_p <- 12
+short_p <- 11
+
+results <- data.frame()
+
+while (short_p > 0) {
+  # 長いラグ次数のVARモデル
+  var_lr_long <- VAR(df[, 2:4], p = long_p, type = "const")
+  log_det_covres_long <- log(det(cov(residuals(var_lr_long))))
+  aic_long <- AIC(var_lr_long)
+  bic_long <- BIC(var_lr_long)
+  
+  # 短い次数のVARモデル
+  var_lr_short <- VAR(df[, 2:4], p = short_p, type = "const")
+  log_det_covres_short <- log(det(cov(residuals(var_lr_short))))
+  aic_short <- AIC(var_lr_short)
+  bic_short <- BIC(var_lr_short)
+  
+  # LR検定統計量
+  LR <- nrow(df) * (log_det_covres_short - log_det_covres_long)
+  # LR検定統計量に対応するχ^2分布の有意水準5%臨界値
+  # 自由度はラグ次数が1減る制約に対応する
+  dfree <- (3^2 * long_p + 3) - (3^2 * short_p + 3)
+  thresh_chisq <- qchisq(0.95, df = dfree)
+  
+  # 結果まとめ
+  # 最初だけlong_pの結果も付け加える
+  if (long_p == 12) {
+    res <- data.frame(
+      dlag = long_p,
+      LRtest = NA,
+      aic = aic_long,
+      bic = bic_long
+    )
+    results <- rbind(results, res)
+  }
+  # 最初の1回以外はshot_pの結果を付け加えるだけで良い
+  res <- data.frame(
+    dlag = short_p,
+    LRtest = LR > thresh_chisq,
+    aic = aic_short,
+    bic = bic_short
+  )
+  results <- rbind(results, res)
+  
+  # ラグ次数を1減らして繰り返し
+  long_p <- long_p - 1
+  short_p <- short_p - 1
+}
+
+print(results)
+```
+
+AIC, BICだとラグ1、一般化からの特定法だとラグ10が選ばれた。  
+（BICに比べるとAICのラグ3はラグ1と僅差ではある。）
