@@ -1,0 +1,159 @@
+---
+title: "第5章 練習問題[7]"
+output: github_document
+---
+
+# [7]
+
+問題[6]の結果からはラグ1が選択されるような気もするが...  
+ここでは書籍の通りラグ3のVARモデルを採用する。  
+ラグ3なので、1961Q1を初期として推定する。
+
+```{r}
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(vars)
+
+QUARTERLY <- read_csv("../data/QUARTERLY.csv")
+# 四半期の列名を付与
+QUARTERLY <- dplyr::rename(QUARTERLY, Qtr = ...1)
+
+# 時系列のインデックス作成
+Qtr <- QUARTERLY$Qtr
+# st系列作成
+s_t <- QUARTERLY$r5 - QUARTERLY$tbill
+# Δlip_t系列作成
+dlip_t <- diff(log(QUARTERLY$indprod))
+# Δur_t系列作成
+dur_t <- diff(QUARTERLY$unemp)
+
+# 1961Q1から始まるデータを作成
+# 変数の並び順に注意。後述
+df <- data.frame(
+  Qtr = Qtr[5:length(Qtr)],
+  dlip_t = dlip_t[4:length(dlip_t)],
+  dur_t = dur_t[4:length(dur_t)],
+  s_t = s_t[5:length(s_t)]
+)
+
+# 3次のVARモデル
+var_lag3 <- VAR(df[, 2:4], p = 3, type = "const")
+summary(var_lag3)
+```
+
+ここで、 `df` 内の変数の並び順に注意。  
+Rの `var::irf()` でインパルス応答関数を計算する際、どうやら変数の並び順を基に因果関係の先行性を決めているらしい。  
+（具体的には、残差の分散共分散行列をコレスキー分解する際、varモデルで指定する変数の並び順で変数を並べた後で下三角行列のコレスキー分解をしているらしい。）  
+
+- [直交化インパルス応答値を求める際の内生変数の順序について](https://saecanet.com/saecanet-tips-order-of-endogenous-variables-in-orthogonal-impulse-response-function.html)
+- [VARモデル補遺（備忘録）](https://tjo.hatenablog.com/entry/2022/08/30/170000)
+
+正直この辺り怪しいので有識者の方いらっしゃいましたら教えてください...
+
+
+## (a), (b)
+
+__注意!!__  
+以下ではRの `vars::causality()` 関数を用いてグレンジャー因果性検定を行っている。  
+この関数は3変数以上のVARモデルの場合は特定の系列が他 __全て__ の系列にグレンジャー因果を持っているか否かを検定する。  
+そのため書籍の問いの答えとは異なる解を導いていることに注意。  
+（だれかきちんと書籍の問題に答えられる方法ご存じであれば教えてくださいmm）
+
+```{r}
+causality(var_lag3, cause = "s_t")
+```
+
+有意水準1%でグレンジャー因果性が無いという帰無仮説が棄却される。  
+よって、 `s_t` は `dlip_t`, `dur_t` の両方にグレンジャー因果性を持つ。  
+
+（普通に考えて片方にはグレンジャー因果性があるが、もう一方には無いということが起こりうる気がする。  
+このパターンを検定できないのは困らないのだろうか...）  
+
+
+## (c)
+
+$e_{1t}$ ( $\Delta lip_t$ の残差系列)と $e_{2t}$ ( $\Delta ur_t$ の残差系列) に着目する。  
+$\Delta lip_t$ が $\Delta ur_t$ よりも因果関係で先行する順序付けを採用した場合、
+$e_{1t}$ と $e_{2t}$ の相関係数が負なので、 $\Delta lip_t$ のショックは $\Delta ur_t$ のインパルス応答関数に
+負の影響を与える。  
+
+一方、$\Delta ur_t$ が $\Delta lip_t$ よりも因果関係で先行する順序付けを採用した場合、
+$\Delta lip_t$ のショックは $\Delta ur_t$ のインパルス応答関数に影響を与えない。  
+
+このように、順序付けによってインパルス応答関数が異なってしまうため、コレスキー分解の順序付けはモデルの識別において重要である。  
+
+
+## (d)
+
+```{r}
+fevd(var_lag3, n.ahead = 8)
+```
+
+```{r}
+# ちなみにplotした方が分かりやすい
+plot(fevd(var_lag3, n.ahead = 8))
+```
+
+
+## (e)
+
+```{r}
+# lip_t系列作成
+lip_t <- log(QUARTERLY$indprod)
+# ur_t系列作成
+ur_t <- QUARTERLY$unemp
+
+# 1961Q1から始まるデータを作成
+df_nondiff <- data.frame(
+  Qtr = Qtr[5:length(Qtr)],
+  s_t = s_t[5:length(s_t)],
+  lip_t = lip_t[5:length(lip_t)],
+  ur_t = ur_t[5:length(ur_t)]
+)
+
+# 3次のVARモデル推定
+var_nondiff_lag3 <- VAR(df[, 2:4], p = 3, type = "const")
+
+# 予測誤差分解のプロット
+plot(fevd(var_nondiff_lag3, n.ahead = 8))
+```
+
+予測誤差分解の結果はあまり変わらない。  
+
+
+## (f)
+
+```{r}
+# インパルス応答関数のプロット
+plot(irf(var_lag3, n.ahead = 8))
+```
+
+`Orthogonal Impulse Response from dlip_t` の縦軸 `dur_t` のグラフが鉱工業指数に対する正のショックの失業率のインパルス応答関数。  
+グラフを見ると6四半期くらいまでインパルス応答関数が負になっているので、鉱工業指数の正のショックは6四半期の失業率を低下させる。  
+
+
+## (g)
+
+`df` の変数の並び順を変えて推定しなおし、インパルス応答関数を描く。
+
+```{r}
+# 因果関係の先行性(=変数の並び順)を変える
+df <- data.frame(
+  Qtr = Qtr[5:length(Qtr)],
+  dur_t = dur_t[4:length(dur_t)],
+  dlip_t = dlip_t[4:length(dlip_t)],
+  s_t = s_t[5:length(s_t)]
+)
+
+# 3次のVARモデル
+var_lag3 <- VAR(df[, 2:4], p = 3, type = "const")
+
+# インパルス応答関数
+plot(irf(var_lag3, n.ahead = 8))
+```
+
+先ほどと同様、`Orthogonal Impulse Response from dlip_t` の縦軸 `dur_t` のグラフが鉱工業指数に対する正のショックの失業率のインパルス応答関数。  
+グラフを見ると6四半期くらいまでインパルス応答関数が負になっているのは変わらないが、縦軸の値は (f) よりも小さい。  
+また、0期のインパルス応答関数の値が0である点も（因果関係の先行性を変えたから当然だが）異なる。
+
