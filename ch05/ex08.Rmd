@@ -1,0 +1,189 @@
+---
+title: "第5章 練習問題[8]"
+output: github_document
+---
+
+# [8]
+
+```{r}
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(vars)
+library(urca)
+
+QUARTERLY <- read_csv("../data/QUARTERLY.csv")
+# 四半期の列名を付与
+QUARTERLY <- dplyr::rename(QUARTERLY, Qtr = ...1)
+
+# 時系列のインデックス作成
+Qtr <- QUARTERLY$Qtr
+# Δlip_t系列作成
+dlip_t <- diff(log(QUARTERLY$indprod))
+# Δinf_t系列作成
+inf_t <- diff(log(QUARTERLY$cpi))
+
+# 階差のNA分を除いた1960Q2から始まるデータを作成
+df <- data.frame(
+  Qtr = Qtr[2:length(Qtr)],
+  dlip_t = dlip_t,
+  inf_t = inf_t
+)
+
+head(df)
+```
+
+```{r}
+# プロット
+# dlip_t
+ts.plot(ts(data = df$dlip_t, start = c(1960, 2), frequency = 4))
+
+# inf_t
+ts.plot(ts(data = df$inf_t, start = c(1960, 2), frequency = 4))
+```
+
+`dlip_t, inf_t` ともに単位根を持つ可能性はあるが、トレンドは存在していないように見える。  
+
+
+## (a)
+
+dlit_tとinf_tが定常であるかどうかを調べるため、ADF検定を行う。
+
+### dlip_t
+
+```{r}
+# dlip_t
+summary(ur.df(df$dlip_t, type = "drift", lags = 5, selectlags = "AIC"))
+```
+
+ラグ1の項の係数が有意に0でないので、単位根を持つという帰無仮説は棄却される。  
+よって $\Delta lip_t$ は定常であると判断される。  
+
+
+### inf_t
+
+```{r}
+# inf_t
+summary(ur.df(df$inf_t, type = "drift", lags = 5, selectlags = "AIC"))
+```
+
+
+ラグ1の項の係数が有意に0でないので、単位根を持つという帰無仮説は棄却される。  
+よって $inf_t$ は定常であると判断される。  
+
+
+## (b)
+### AIC
+
+```{r}
+var_aic <- VAR(df[, 2:3], type = "const", lag.max = 10, ic = "AIC")
+summary(var_aic)
+```
+
+AICではラグ5が選択された。
+
+
+### BIC
+
+```{r}
+var_bic <- VAR(df[, 2:3], type = "const", lag.max = 10, ic = "SC")
+summary(var_bic)
+```
+
+BICではラグ3が選択された。
+
+
+### 一般化からの特定法
+省略。 `ch06.md` 参照。
+
+
+## (c)
+### inf_t -> dlip_t
+
+```{r}
+var_lag3 <- VAR(df[, 2:3], p = 3, type = "const")
+causality(var_lag3, cause = "inf_t")
+```
+
+インフレ率は鉱工業指数に対してグレンジャー因果を持つと判断された。
+
+
+### dlip_t -> inf_t
+
+```{r}
+causality(var_lag3, cause = "dlip_t")
+```
+
+鉱工業指数はインフレ率に対してグレンジャー因果を持つと判断された。  
+
+
+## (d)
+
+```{r}
+fevd(var_lag3, n.ahead = 8)
+```
+
+
+## (e)
+
+```{r}
+plot(irf(var_lag3, n.ahead = 8))
+```
+
+$\Delta lip_t$ に対する正のショックによる $inf_t$ のインパルス応答関数は正であることから、鉱工業指数に対する正のショックはインフレ率を増加させることが分かる。  
+$inf_t$ に対する正のショックによる $\Delta lip_t$ のインパルス応答関数は負であることから、インフレ率に対する正のショックは鉱工業指数を減少させることが分かる。  
+
+この結果はAS-ADモデルとは不整合である（p.321で触れられているモデルがAS-ADモデルらしい）。  
+今の場合、鉱工業指数に対する正のショックは総供給ショック、インフレ率に対する正のショックは総需要ショックとみなせる。  
+この時、AS-ADモデルによると総供給ショックは長期的には需要、つまりインフレ率を低下させる。  
+逆に、総需要ショックは生産、つまり鉱工業指数を増加させる。  
+
+
+## (f)
+以下のコードで `var_lag3` の `dlip_t` 残差の標準偏差を確認すると、0.01228 であることが分かる。
+この値でBQ分解ごとのインパルス応答関数の各値を割り、問題のインパルス応答関数を求める。
+
+```{r}
+summary(var_lag3)
+```
+
+```{r}
+# dlip_t推定式の残差の標準偏差
+dlip_t_std <- 0.01228
+
+# BQ分解後のインパルス応答関数
+# 累積和を計算する
+irf_bq_decomp <- irf(BQ(var_lag3), cumulative = T, n.ahead = 25)
+
+# dlip_tのショックに対するインパルス応答関数を計算してプロット
+dlip_t_irf <- irf_bq_decomp$irf$dlip_t / dlip_t_std
+dlip_t_irf <- as.data.frame(dlip_t_irf) %>% mutate(idx = 1:26)
+# dlip_tのショックに対するdlip_tのインパルス応答関数
+g <- ggplot(data = dlip_t_irf, mapping = aes(x = idx, y = dlip_t)) + 
+     geom_line() +
+     ggtitle("IRF of dlip_t from dlip_t shock")
+plot(g)
+# dlip_tのショックに対するinf_tのインパルス応答関数
+g <- ggplot(data = dlip_t_irf, mapping = aes(x = idx, y = inf_t)) + 
+     geom_line() +
+     ggtitle("IRF of inf_t from dlip_t shock")
+plot(g)
+
+# inf_tのショックに対するインパルス応答関数を計算してプロット
+inf_t_irf <- irf_bq_decomp$irf$inf_t / dlip_t_std
+inf_t_irf <- as.data.frame(inf_t_irf) %>% mutate(idx = 1:26)
+# inf_tのショックに対するinf_tのインパルス応答関数
+g <- ggplot(data = inf_t_irf, mapping = aes(x = idx, y = inf_t)) + 
+     geom_line() +
+     ggtitle("IRF of inf_t from inf_t shock")
+plot(g)
+# inf_tのショックに対するdlip_tのインパルス応答関数
+g <- ggplot(data = inf_t_irf, mapping = aes(x = idx, y = dlip_t)) + 
+     geom_line() +
+     ggtitle("IRF of dlip_t from dlip_t shock")
+plot(g)
+```
+
+
+## (g)
+(f)のグラフは(e)のグラフと異なり、AS-ADモデルと整合的である。
