@@ -1,0 +1,239 @@
+---
+title: "第6章 練習問題[3]"
+output: github_document
+---
+
+# [3]
+
+```{r}
+library(dplyr)
+library(ggplot2)
+
+COINT6 <- read.csv("../data/COINT6.csv")
+COINT6 <- COINT6 %>% mutate(idx = 1:nrow(COINT6))
+head(COINT6)
+
+g <- ggplot(data = COINT6, mapping = aes(x = idx)) +
+     geom_line(mapping = aes(y = y, colour = "y")) +
+     geom_line(mapping = aes(y = z, colour = "z")) +
+     geom_line(mapping = aes(y = w, colour = "w"))
+plot(g)
+```
+
+
+## (a)
+### 第1段階：変数の単位根検定
+
+ラグなしの場合のDF検定
+
+```{r}
+library(urca)
+
+results_lag0 <- data.frame()
+
+# y
+adftest <- ur.df(COINT6$y, type ="drift", lags = 0)
+results_lag0 <- rbind(results_lag0,
+                      data.frame(v = "y",
+                                 est = adftest@testreg$coefficients[2, 1],
+                                 tval = adftest@testreg$coefficients[2, 3]))
+
+# z
+adftest <- ur.df(COINT6$z, type ="drift", lags = 0)
+results_lag0 <- rbind(results_lag0,
+                      data.frame(v = "z",
+                                 est = adftest@testreg$coefficients[2, 1],
+                                 tval = adftest@testreg$coefficients[2, 3]))
+
+# w
+adftest <- ur.df(COINT6$w, type ="drift", lags = 0)
+results_lag0 <- rbind(results_lag0,
+                      data.frame(v = "w",
+                                 est = adftest@testreg$coefficients[2, 1],
+                                 tval = adftest@testreg$coefficients[2, 3]))
+
+print(results_lag0)
+```
+
+ラグ4の場合のDF検定
+
+```{r}
+library(urca)
+
+results_lag4 <- data.frame()
+
+# y
+adftest <- ur.df(COINT6$y, type ="drift", lags = 4)
+results_lag4 <- rbind(results_lag4,
+                      data.frame(v = "y",
+                                 est = adftest@testreg$coefficients[2, 1],
+                                 tval = adftest@testreg$coefficients[2, 3]))
+
+# z
+adftest <- ur.df(COINT6$z, type ="drift", lags = 4)
+results_lag4 <- rbind(results_lag4,
+                      data.frame(v = "z",
+                                 est = adftest@testreg$coefficients[2, 1],
+                                 tval = adftest@testreg$coefficients[2, 3]))
+
+# w
+adftest <- ur.df(COINT6$w, type ="drift", lags = 4)
+results_lag4 <- rbind(results_lag4,
+                      data.frame(v = "w",
+                                 est = adftest@testreg$coefficients[2, 1],
+                                 tval = adftest@testreg$coefficients[2, 3]))
+
+print(results_lag4)
+```
+
+ラグ0, 4のいずれでも `y, w, z` の系列で単位根仮説を棄却できない。  
+
+
+### 第2段階：長期均衡関係の推定
+`y` を `z, w` で回帰し、残差のADF検定を行う。  
+ADF検定では先ほどと同様、ラグ0とラグ4の両方で検定を行う。
+
+```{r}
+reg_y <- lm(formula = y ~ z + w, data = COINT6)
+summary(reg_y)
+
+# 残差の定常性検定
+# 残差なので定数項はないものと仮定する
+# ラグ0
+summary(ur.df(reg_y$residuals, type = "none", lags = 0))
+
+# ラグ4
+summary(ur.df(reg_y$residuals, type = "none", lags = 4))
+```
+
+ここで、ADF検定の結果を解釈する際に上記のp値で判断してはならないことに注意（詳細は書籍p.357を参照）。  
+T値を書籍の巻末付表Cの値と比べて判断する。  
+巻末の付表Cから、T値の臨界値は -3.828 なので、上記のADF検定では単位根仮説が棄却され、残差は定常であると考えられる。  
+
+`z`, `w` についても同様の操作を行うことで書籍の結果を再現できる。  
+
+
+### 第3段階：誤差修正モデルの推定
+
+```{r}
+library(vars)
+
+# wを従属変数とした回帰の残差を求めておく
+ew <- lm(formula = w ~ y + z, data = COINT6)$residuals
+
+# y, z, wの階差系列を求める
+diff_df <- data.frame(
+  dy = diff(COINT6$y),
+  dz = diff(COINT6$z),
+  dw = diff(COINT6$w)
+)
+
+# ewを外政変数としたVARモデルを推定
+# ラグは書籍に合わせて1とする
+err_corr_mdl <- VAR(diff_df, p = 1, exogen = ew[-length(ew)])
+summary(err_corr_mdl)
+```
+
+書籍と同様の結果が得られた。  
+
+
+## (b)
+インパルス応答関数
+```{r}
+plot(irf(err_corr_mdl, n.ahead = 10))
+```
+
+分散分解
+
+```{r}
+plot(fevd(err_corr_mdl, n.ahead = 10))
+```
+
+
+## (c)
+### 第1段階：単位根検定とラグ次数選択
+(a)の第1段階で単位根検定は済んでおり、単位根仮説を棄却できないという結果であった。  
+ここではラグ次数選択のみ行う。
+
+```{r}
+# AICでラグ次数を選択する
+var_aic <- VAR(COINT6[, 1:3], type = "const", lag.max = 8, ic = "AIC")
+summary(var_aic)
+```
+
+書籍と同様、ラグ2が選択された。
+
+
+## 共和分階数の決定
+
+```{r}
+co_vecm<- ca.jo(COINT6[, 1:3], type = "trace", ecdet = "const", K = 2, spec = "longrun")
+summary(co_vecm)
+```
+
+5%有意水準では帰無仮説：共和分ベクトルが1個以下、対立仮説：共和分ベクトルが2以上(2か3)で帰無仮説を棄却できないため、共和分ベクトルは1個と考えられる。  
+（10%有意水準では上記で帰無仮説が棄却されてしまう。）  
+
+
+## 共和分ベクトルの推定
+上記の `co_vecm` の推定結果に推定された共和分ベクトルと調整速度係数が含まれている。  
+今共和分ベクトルは1個なので、最大固有値に対応する固有ベクトルが共和分ベクトルとなる。  
+よって `co_vecm` の `Eigenvectors, normalised to first column:` の欄で最初の固有ベクトル( `y.l2` の列) が推定された共和分ベクトルとなる。  
+併せて、 `Weights W:` の対応する列 (こちらも `y.l2` の列)が調整速度係数となる。
+
+共和分ベクトルの制約検定を行う。  
+$\beta$ に対する制約なので `blrtest()` 関数を用いる。  
+`blrtest()` 関数における制約行列 `H` の考え方は以下を参照。  
+
+[Some Interesting Issues in VECM using R](https://www.r-bloggers.com/2021/12/some-interesting-issues-in-vecm-using-r/)
+
+### 1
+$\beta_0 = 0$ の制約を検定する。 
+これ以降の検定でも同様だが、書籍では $\beta_1 = -1$ と基準化しているため、その制約も含める。  
+
+```{r}
+H <- matrix(
+  c(-1, 0, 0,
+     0, 1, 0,
+     0, 0, 1,
+     0, 0, 0),
+  c(4, 3), byrow = T
+)
+summary(blrtest(co_vecm, H = H, r = 1))
+```
+
+$\beta_0 = 0$ の制約は棄却できない。  
+
+
+### 2
+$\beta_2 = -1, \beta_3 = 1$ の制約を検定する。  
+
+```{r}
+H <- matrix(
+  c(-1, 0,
+    -1, 0,
+     1, 0,
+     0, 1),
+  c(4, 2), byrow = T
+)
+summary(blrtest(co_vecm, H = H, r = 1))
+```
+
+制約 $\beta_2 = -1, \beta_3 = 1$ は棄却できない。
+
+
+### 3
+$\beta_0 = 0, \beta_2 = -1, \beta_3 = 1$ を検定する。
+
+```{r}
+H <- matrix(
+  c(-1,
+    -1,
+     1,
+     0),
+  c(4, 2), byrow = T
+)
+summary(blrtest(co_vecm, H = H, r = 1))
+```
+
+制約 $\beta_0 = 0, \beta_2 = -1, \beta_3 = 1$ は棄却できない。
