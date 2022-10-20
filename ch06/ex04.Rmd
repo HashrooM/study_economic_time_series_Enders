@@ -1,0 +1,107 @@
+---
+title: "第6章 練習問題[4]"
+output: github_document
+---
+
+# [4]
+
+```{r}
+library(ggplot2)
+library(dplyr)
+
+QUARTERLY <- read.csv("../data/QUARTERLY.csv")
+df <- data.frame(
+  rst = pull(QUARTERLY, tbill),
+  rlt = pull(QUARTERLY, tb1yr)
+)
+
+head(df)
+
+g <- ggplot(data = df %>% mutate(idx = 1:nrow(df)), 
+            mapping = aes(x = idx)) +
+     geom_line(mapping = aes(y = rst, colour = "rst")) +
+     geom_line(mapping = aes(y = rlt, colour = "rlt"))
+plot(g)
+```
+
+
+## (a)
+
+```{r}
+library(urca)
+
+# ADF test for rst
+summary(ur.df(df$rst, type = "drift", lags = 7))
+```
+
+```{r}
+# ADF test for rlt
+summary(ur.df(df$rlt, type = "drift", lags = 7))
+```
+
+
+## (b)
+
+```{r}
+# rst = C + a*rltを推定
+longrun_rst <- lm(formula = rst ~ rlt, data = df)
+summary(longrun_rst)
+```
+
+
+## (c)
+
+```{r}
+et <- longrun_rst$residuals
+summary(ur.df(et, type = "none", lags = 6))
+```
+
+t統計量は -4.784である。この統計量を書籍の付表Cと比べる。  
+2変数モデルでサンプルサイズは約200なので、付表Cから5%臨界値は-3.368。  
+よって、共和分関係が無いという帰無仮説は棄却される。  
+
+`rlt` を左辺とした長期関係については省略するが、同様の結論が得られる。
+
+
+## (d)
+
+```{r}
+library(vars)
+
+# diff(rst), diff(rlt)を内生変数、etを外生変数としたVARモデルを推定することで
+# 誤差修正モデルを推定する
+diff_df <- data.frame(
+  d_rst = diff(df$rst),
+  d_rlt = diff(df$rlt),
+  et = et[-1]
+)
+
+# AICを用いてラグ次数を選択する
+vecm <- VAR(diff_df[, 1:2], type = "const", exogen = diff_df[, 3],
+            lag.max = 10, ic = "AIC")
+summary(vecm)
+```
+
+インパルス応答関数は以下
+
+```{r}
+plot(irf(vecm, n.ahead = 25))
+```
+
+
+## (e)
+最大固有値検定統計量
+
+```{r}
+summary(ca.jo(df, type = "eigen", ecdet = "const", K = 7, spec = "longrun"))
+```
+
+最大固有値検定では共和分ベクトルが0個の帰無仮説が棄却されるため、共和分ベクトルは1個であると考えられる。  
+
+トレース検定統計量
+
+```{r}
+summary(ca.jo(df, type = "trace", ecdet = "const", K = 7, spec = "longrun"))
+```
+
+トレース検定においても共和分ベクトルが1個であるという結果が得られた。
