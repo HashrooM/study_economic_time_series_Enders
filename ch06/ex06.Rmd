@@ -1,0 +1,42 @@
+---
+title: "第6章 練習問題[6]"
+output: github_document 
+---
+
+# [6]
+## (a)
+
+```{r}
+library(urca)
+
+COINT_PPP <- read.csv("../data/COINT_PPP.csv")
+
+# 各系列を対数変換
+df <- data.frame(
+  lCANEX = log(COINT_PPP$CANEX),
+  lCANCPI = log(COINT_PPP$CANCPI),
+  lUSCPI = log(COINT_PPP$USCPI)
+)
+```
+
+最大固有値検定統計量  
+
+```{r}
+vecm_eigen <- ca.jo(df, type = "eigen", ecdet = "const", K = 11, spec = "longrun")
+summary(vecm_eigen)
+```
+
+トレース検定統計量  
+
+```{r}
+vecm_trace <- ca.jo(df, type = "trace", ecdet = "const", K = 11, spec = "longrun")
+summary(vecm_trace)
+```
+
+
+## (b)
+為替レートについて基準化するには各係数を-0.949で割ればよいので、基準化後の共和分ベクトルは  
+
+$ln(CANEX_t) + 6.832 ln(CANCPI_t) - 1.686 ln(USCPI_t) - 33.354$
+
+為替レート $ln(CANEX_t)$ と物価 $ln(CANCPI_t)$ の係数の符号が同じであるため、長期PPPとは不整合である。
