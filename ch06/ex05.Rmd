@@ -1,0 +1,188 @@
+---
+title: "第6章 練習問題[5]"
+output: github_document
+---
+
+# [5]
+## (a)
+
+```{r}
+library(dplyr)
+
+COINT_PPP <- read.csv("../data/COINT_PPP.csv")
+
+# 各系列を対数変換
+df <- data.frame(
+  ENTRY = COINT_PPP$ENTRY,
+  lUSCPI = log(COINT_PPP$USCPI),
+  lCANEX = log(COINT_PPP$CANEX),
+  lCANCPI = log(COINT_PPP$CANCPI),
+  lJAPANEX = log(COINT_PPP$JAPANEX),
+  lJAPANCPI = log(COINT_PPP$JAPANCPI),
+  lSWEX = log(COINT_PPP$SWEX),
+  lSWCPI = log(COINT_PPP$SWCPI)
+)
+```
+
+
+### `USCPI` のADF検定
+本来は残差の系列相関チェックなど色々やらなくてはならないが...系列が多いので省略...
+
+```{r}
+library(urca)
+
+summary(ur.df(df$lUSCPI, type = "trend", lags = 20, selectlags = "AIC"))
+```
+
+`USCPI` に関しては有意水準5%では単位根仮説を棄却できない。
+
+
+### `CANEX` のADF検定
+
+```{r}
+summary(ur.df(df$lCANEX, type = "trend", lags = 20, selectlags = "AIC"))
+```
+
+`CANEX` についても有意水準5%では単位根仮説を棄却できない。
+
+
+### `CANCPI` のADF検定
+
+```{r}
+summary(ur.df(df$lCANCPI[is.na(df$lCANCPI) == F], type = "trend", lags = 20, selectlags = "AIC"))
+```
+
+`CANCPI` についても有意水準5%で単位根仮説が棄却できない。  
+
+
+### `JAPANEX` のADF検定
+
+```{r}
+summary(ur.df(df$lJAPANEX[is.na(df$lJAPANEX) == F], type = "trend", lags = 20, selectlags = "AIC"))
+```
+
+`JAPANEX` についても有意水準5%で単位根仮説を棄却できない。
+
+
+### `JAPANCPI` のADF検定
+
+```{r}
+summary(ur.df(df$lJAPANCPI[is.na(df$lJAPANCPI) == F], type = "trend", lags = 20, selectlags = "AIC"))
+```
+
+`JAPANCPI` についても有意水準5%で単位根仮説が棄却される。
+
+
+### `SWEX` のADF検定
+
+```{r}
+summary(ur.df(df$lSWEX[is.na(df$lSWEX) == F], type = "trend", lags = 20, selectlags = "AIC"))
+```
+
+`SWEX` についても有意水準5%で単位根仮説を棄却できない。
+
+
+### `SWCPI` のADF検定
+
+```{r}
+summary(ur.df(df$lSWCPI[is.na(df$lSWCPI) == F], type = "trend", lags = 20, selectlags = "AIC"))
+```
+
+`SWCPI` についても有意水準5%で単位根仮説を棄却できない。
+
+`USCPI` がトレンド定常である場合は米国の系列をPPPの共和分分析に含めることは出来ない。
+
+## (b)
+
+```{r}
+longrun_japanex <- lm(lJAPANEX ~ lJAPANCPI + lUSCPI, data = df)
+summary(longrun_japanex)
+```
+
+長期でPPPが成り立つ場合、 `lJAPANEX + lUSCPI - lJAPANCPI` が定常となる。  
+このとき、 `lJAPANEX` を `lUSCPI` と `lJAPANCPI` で回帰すると係数が正負で反対になるはずである。  
+しかし上記の推定結果では両係数が負なので、近郊からの乖離を収束させる動きがない。  
+よって推定結果は長期PPPとは整合的ではない。
+
+また、共和分回帰におけるt統計量は一般に正規分布に従わない。  
+よって上記の推定結果で日本のCPIが有意でないという結論は出せない。
+
+
+## (c)
+
+```{r}
+et <- longrun_japanex$residuals
+summary(ur.df(et, type = "none", lags = 11))
+```
+
+付表Cから5%臨界値は -3.76 なので、単位根仮説を棄却できない。  
+よって変数間に共和分関係があるとは言えず、長期PPPが成立しているとは言えない。  
+
+
+## (d)
+カナダのみの結果を示す。  
+まずカナダとアメリカの長期関係を推定する。  
+
+```{r}
+longrun_canex <- lm(lCANEX ~ lCANCPI + lUSCPI, data = df)
+summary(longrun_canex)
+```
+
+係数は長期PPPと整合的である。  
+次に長期関係の残差を用いてエンゲル=グレンジャーの共和分検定を行う。
+
+```{r}
+et <- longrun_canex$residuals
+summary(ur.df(et, type = "none", lags = 11))
+```
+
+
+## (e)
+
+```{r}
+library(vars)
+
+# 日米の長期関係の残差を求める
+et <- longrun_japanex$residuals
+
+# diff(lJAPANEX), diff(lJAPANCPI), diff(lUSCPI)を内生変数、etを外生変数としたVARモデルを推定することで
+# 誤差修正モデルを推定する
+diff_df <- data.frame(
+  d_ljapanex = diff(df$lJAPANEX[1:468]),
+  d_ljapancpi = diff(df$lJAPANCPI[1:468]),
+  d_luscpi = diff(df$lUSCPI[1:468]),
+  et = et[-1]
+)
+
+# AICを用いてラグ次数を選択する
+vecm <- VAR(diff_df[, 1:3], type = "const", exogen = diff_df[, 4], p = 11)
+summary(vecm)
+```
+
+
+## (f)
+
+```{r}
+plot(irf(vecm, n.ahead = 25))
+```
+
+
+## (g)
+(b), (c)では `lJAPANEX ~ lJAPANCPI + lUSCPI` として長期関係を推定したため、  
+今回は `lUSCPI ~ lJAPANCPI + lJAPANEX` として推定し、エングル=グレンジャーの共和分検定を行う。  
+
+```{r}
+longrun_uscpi <- lm(lUSCPI ~ lJAPANCPI + lJAPANEX, data = df)
+summary(longrun_uscpi)
+```
+
+次に残差を用いて共和分検定を行う。
+
+```{r}
+et <- longrun_uscpi$residuals
+summary(ur.df(et, type = "none", lags = 11))
+```
+
+`z.lag1.1` 係数のt統計量は -2.074 である。  
+3変数でサンプルサイズが500の場合の有意水準5%の臨界値は-3.760、有意水準10%の臨界値は-3.464であるため、共和分関係が無いという帰無仮説を棄却できない。  
+(b), (c)と同じ結論であるため、今回は長期関係の基準化は結果に影響しない。
