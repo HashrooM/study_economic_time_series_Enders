@@ -20,7 +20,10 @@ RUN R -e "install.packages('markdown')" \
     && R -e "install.packages('urca')" \
     && R -e "install.packages('plm')" \
     && R -e "install.packages('mFilter')" \
-    && R -e "install.packages('vars')"
+    && R -e "install.packages('vars')" \
+    && R -e "install.packages('forecast')" \
+    && R -e "install.packages('aod')" \
+    && R -e "install.packages('tsDyn')"
 
 # ワーキングディレクトリ変更
 WORKDIR /home/rstudio
