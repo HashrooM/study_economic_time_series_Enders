@@ -1,0 +1,166 @@
+---
+title: "第7章 練習問題[3]"
+output: github_document
+---
+
+# [3]
+
+```{r}
+df <- read.csv("../data/LSTAR.csv")
+print(head(df))
+```
+
+基本統計量
+
+```{r}
+list(
+  avg = mean(df$Y),
+  std = sd(df$Y),
+  max = max(df$Y),
+  med = median(df$Y),
+  min = min(df$Y)
+)
+```
+
+プロット
+```{r}
+library(ggplot2)
+
+g <- ggplot(data = df, mapping = aes(x = ENTRY, y = Y)) +
+     geom_line()
+plot(g)
+```
+
+
+## (a)
+
+AICで (7.24) が選ばれることを確かめる。  
+
+```{r}
+library(forecast)
+
+auto.arima(df$Y, ic = "aic", stepwise = T, trace = T)
+```
+
+BICでも確かめてみる。  
+
+```{r}
+auto.arima(df$Y, ic = "bic", stepwise = T, trace = T)
+```
+
+AIC, BICの両方で AR(1) モデルが選択された。  
+ただし、BICの場合は切片なしモデルが選択されている。AICモデルでも切片の値が書籍と異なる。  
+ここでは書籍に合わせて AIC 選択された切片ありの AR(1) モデルを用いる。
+
+
+## (b)
+
+```{r}
+library(dplyr)
+library(aod)
+
+# 線形AR(1)モデルを推定し、残差と予測値を取得する
+linear_ar1 <- arima(df$Y, c(1, 0, 0), include.mean = T)
+et <- linear_ar1$residuals
+yhat <- df$Y - et
+
+# 予測値の2, 3, 4乗を説明変数として作成
+RESET_df <- data.frame(
+  et = et,
+  yt_1 = dplyr::lag(df$Y),
+  yhat = yhat,
+  yhat2 = yhat^2,
+  yhat3 = yhat^3,
+  yhat4 = yhat^4
+)
+
+# H=3の場合でRESETの回帰式を推定
+RESET_3 <- lm(formula = et ~ yt_1 + yhat2 + yhat3, data = RESET_df)
+print(summary(RESET_3))
+
+# yhat^2, yhat^3の係数が0とおいた制約を検定する
+wald.test(Sigma = vcov(RESET_3), b = coef(RESET_3), Terms = 2:3)
+```
+
+各係数は有意であり、$\hat{y}^2, \hat{y}^3$ の係数を0と仮定したワルド検定も係数が0であるという帰無仮説が棄却される。  
+よって非線形の存在が示唆される。  
+
+H=4 の場合は書籍に記載されているので省略。  
+
+
+## (c)
+
+LSTARモデルを推定し、残差に対して BDS 検定を適用する。  
+
+```{r}
+library(tsDyn)
+library(tseries)
+
+# LSTARモデルを推定し、残差を算出する
+lstar_mdl <- lstar(df$Y, m = 1, d = 1)
+lstar_et <- residuals(lstar_mdl)[-1] # 最初はNAなので落とす
+
+# BDS検定によってetが各々独立であるかを検定する
+bds.test(lstar_et, m = 6)
+```
+
+BDS検定では残差の独立性を棄却できない。  
+
+
+## (d)
+ARモデルの次数は1の下で、d=1のテラスバータの検定を用いる
+
+```{r}
+# d = 1
+terasvirta_df_d1 <- data.frame(
+  et = et,
+  yt_1 = dplyr::lag(df$Y),
+  yt_1_2 = dplyr::lag(df$Y)^2,
+  yt_1_3 = dplyr::lag(df$Y)^3,
+  yt_1_4 = dplyr::lag(df$Y)^4
+)
+
+# d=1の回帰式を推定
+terasvirta_d1 <- lm(et ~ yt_1 + yt_1_2 + yt_1_3 + yt_1_4, terasvirta_df_d1)
+
+# 全ての非線形項の係数が0であるという制約を検定
+wald.test(Sigma = vcov(terasvirta_d1), b = coef(terasvirta_d1), Terms = 2:4)
+```
+
+d=1 のとき、非線形項の存在を確認できる。  
+次に、ESTARモデルとLSTARモデルのどちらが適切であるかを検討するために、  
+$y_{t-1}^4$ の係数が有意であるかを確かめる。  
+
+```{r}
+summary(terasvirta_d1)
+```
+
+$y_{t-1}^4$ の係数が有意であるため、LSTARモデルが選択される。  
+
+
+## (e)
+
+```{r}
+# GARモデル推定
+gar_df <- data.frame(
+  yt = df$Y,
+  yt_1 = dplyr::lag(df$Y),
+  yt_2 = dplyr::lag(df$Y, n = 2),
+  yt_1_2 = dplyr::lag(df$Y)^2
+)
+
+gar_mdl <- lm(yt ~ yt_1 + yt_2 + yt_1_2, gar_df)
+summary(gar_mdl)
+```
+
+残差の自己相関係数
+
+```{r}
+acf(residuals(gar_mdl))
+```
+
+残差に自己相関は見られない。  
+
+GARモデルとLSATRモデルの選択については、LSTARモデルとESTARモデルの選択と同様の手順を取ればよい。  
+GARモデルは $y_{t-1}^2$ まで含まれているので、 LSTARモデルのそれより高次の項が0であるという制約を検定すればよい。
+
