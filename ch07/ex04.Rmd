@@ -1,0 +1,144 @@
+---
+title: "第7章 練習問題[4]"
+output: github_document
+---
+
+# [4]
+
+```{r}
+library(dplyr)
+library(ggplot2)
+
+df <- read.csv("../data/GRANGER.csv")
+
+# 列名を変更
+df <- dplyr::rename(df, r_s = r_short, r_l = r_10)
+# st系列を作成
+df <- mutate(df, st = r_l - r_s)
+
+head(df)
+```
+
+## (a)
+TARモデル
+
+```{r}
+tar_df <- data.frame(
+  dst = diff(df$st),
+  dst_1 = dplyr::lag(diff(df$st)),
+  st_1 = dplyr::lag(df$st)[-1] + 0.27,
+  It = (dplyr::lag(df$st)[-1] > -0.27) + 0,
+  I_It = 1 - (dplyr::lag(df$st)[-1] > 0.27) + 0
+)
+
+tar_mdl <- lm(dst ~ It : st_1 + I_It : st_1 + dst_1 + 0, tar_df)
+summary(tar_mdl)
+```
+
+MTARモデル
+
+```{r}
+mtar_df <- data.frame(
+  dst = diff(df$st),
+  dst_1 = dplyr::lag(diff(df$st)),
+  st_1 = dplyr::lag(df$st)[-1] - 1.64,
+  It = (dplyr::lag(diff(df$st)) > 0) + 0,
+  I_It = 1 - (dplyr::lag(diff(df$st)) > 0) + 0
+)
+
+mtar_mdl <- lm(dst ~ It : st_1 + I_It : st_1 + dst_1 + 0, mtar_df)
+summary(mtar_mdl)
+```
+
+
+## (b)
+
+```{r}
+mtar_df <- data.frame(
+  dst = diff(df$st),
+  dst_1 = dplyr::lag(diff(df$st)),
+  st_1 = dplyr::lag(df$st)[-1] - 1.64,
+  It = (dplyr::lag(diff(df$st)) > 0) + 0,
+  I_It = 1 - (dplyr::lag(diff(df$st)) > 0) + 0
+)
+
+mtar_mdl <- lm(dst ~ It : st_1 + 0, mtar_df)
+summary(mtar_mdl)
+```
+
+
+## (c)
+
+残差平方和 $SSR$ を用いて、以下のようにAICとBICを求める。  
+$AIC = T ln(SSR) + 2n$  
+$BIC = T ln(SSR) + n ln(T)$  
+
+```{r}
+# MTARモデルは(b)で有意でない項を除いたモデルを推定済み
+# TARモデルについても有意でない項を除いたモデルを再推定する。
+tar_mdl <- lm(dst ~ I_It : st_1 + dst_1 + 0, tar_df)
+summary(tar_mdl)
+```
+
+```{r}
+# 再推定後の各モデルのSSRを求める
+ssr_mtar <- sum(residuals(mtar_mdl)^2)
+ssr_tar <- sum(residuals(tar_mdl)^2)
+
+# 各々のAIC, BICを求める
+# tar_df, mtar_dfの先頭にNAが含まれていて推定に使われていないので、
+# 使用したデータ数Tは143となる
+list(
+  TAR_AIC = 143 * log(ssr_tar) + 2 * 3, # 閾値も含めてパラメータ数は3
+  TAR_BIC = 143 * log(ssr_tar) + 3 * log(143),
+  MTAR_AIC = 143 * log(ssr_mtar) + 2 * 3,
+  MTAR_BIC = 143 * log(ssr_mtar) + 3 * log(143)
+)
+```
+
+
+## (d)
+線形誤差修正モデル
+
+```{r}
+library(urca)
+library(vars)
+
+vecm_df <- data.frame(
+  dr_l = diff(df$r_l),
+  dr_s = diff(df$r_s)
+)
+vecm <- ca.jo(vecm_df, type = "eigen", ecdet = "const", spec = "longrun", K = 2)
+linear_var <- vec2var(vecm, r = 1)
+
+# 残差共分散行列のdeterminantを算出
+et1 <- residuals(linear_var)[, 1]
+et2 <- residuals(linear_var)[, 2]
+det_res_cov <- det(matrix(c(var(et1), cov(et1, et2), cov(et1, et2), var(et2)), 2, 2))
+
+# AICを算出
+144 * log(det_res_cov) + 2 * 10 # 推定されたパラメータは10個
+```
+
+非線形誤差修正モデル
+
+```{r}
+# 非線形調整項を定義
+exo_df <- data.frame(
+  ex1 = ((dplyr::lag(diff(df$st)) > 0) + 0) * (dplyr::lag(df$st)[-1] - 1.64),
+  ex2 = (1 - (dplyr::lag(diff(df$st)) > 0) + 0) * (dplyr::lag(df$st)[-1] - 1.64)
+)
+
+# 非線形調整項を外生変数としたVARモデルを推定
+nlinear_var <- VAR(vecm_df, p = 2, type = "const", exogen = exo_df)
+
+# 残差共分散行列のdeterminantを算出
+et1 <- residuals(nlinear_var)[, 1]
+et2 <- residuals(nlinear_var)[, 2]
+det_nl <- det(matrix(c(var(et1), cov(et1, et2), cov(et1, et2), var(et2)), 2, 2))
+
+# AICを算出
+144 * log(det_nl) + 2 * 12 # 推定されたパラメータは12個
+```
+
+非線形誤差修正モデルの方が当てはまりが良い。
