@@ -1,0 +1,140 @@
+---
+title: "第7章 練習問題[5]"
+output: github_document
+---
+
+# [5]
+
+```{r}
+library(dplyr)
+library(ggplot2)
+
+df <- read.csv("../data/SIM_TAR.csv")
+# 列名を変更
+df <- dplyr::rename(df, yt = TAR)
+
+head(df)
+```
+
+基本統計量
+
+```{r}
+list(
+  mean = mean(df$yt),
+  std = sqrt(var(df$yt)),
+  max = max(df$yt),
+  min = min(df$yt)
+)
+```
+
+プロット
+
+```{r}
+g <- ggplot(df, aes(x = ENTRY, y = yt)) +
+     geom_line()
+plot(g)
+```
+
+
+## (a)
+
+```{r}
+ar1 <- arima(df$yt, c(1, 0, 0))
+ar1
+```
+
+
+## (b)
+
+```{r}
+et <- residuals(ar1)
+yhat <- df$yt - et
+
+reset_df <- data.frame(
+  et = et,
+  y_1 = dplyr::lag(df$y),
+  yhat2 = yhat^2,
+  yhat3 = yhat^3,
+  yhat4 = yhat^4
+)
+
+reset_reg <- lm(et ~ y_1 + yhat2 + yhat3 + yhat4, reset_df)
+summary(reset_reg)
+
+# 非線形項の係数が0という制約を検定する
+library(aod)
+wald.test(Sigma = vcov(reset_reg), b = coef(reset_reg), Terms = 2:4)
+```
+
+すべての係数が0という制約を棄却できないため、非線形項の存在は確認できない。  
+
+
+## (c)
+
+```{r}
+# yを昇順に並べ替える
+yt_ord <- sort(df$yt)
+
+# SSR格納ベクトル
+ssrs <- rep(NA, nrow(df))
+
+# サンプル数を確保するために上下15%点から閾値を候補を探す
+# 今系列長は200なので、30 ~ 170の間で閾値を探す
+for (i in 30:170) {
+  th_df <- data.frame(
+    yt = df$yt,
+    yt_1 = dplyr::lag(df$yt),
+    It = (dplyr::lag(df$yt) > yt_ord[i]) + 0,
+    I_It = 1 - (dplyr::lag(df$yt) > yt_ord[i]) + 0
+  )
+  
+  # TARモデル推定
+  test_reg <- lm(yt ~ It + It : yt_1 + I_It + I_It : yt_1 + 0, th_df)
+  
+  # SSR算出
+  ssr <- sum(residuals(test_reg)^2)
+  ssrs[i] <- ssr
+}
+
+# SSRの最小値、最小値のindexを求める
+min_ssr <- min(ssrs, na.rm = T)
+min_ssr_idx <- which(ssrs == min_ssr)
+
+list(
+  min_ssr = min_ssr,
+  min_ssr_idx = min_ssr_idx,
+  threshold_yt = yt_ord[min_ssr_idx]
+)
+```
+
+SSRのプロット
+
+```{r}
+ssr_df <- data.frame(
+  idx = 30:170,
+  ssr = ssrs[30:170]
+)
+
+g <- ggplot(ssr_df, aes(x = idx, y = ssr)) +
+     geom_line()
+plot(g)
+```
+
+SSRを最小とする閾値は88番目に小さいytの値で、-0.4012338 であることが分かった。
+
+
+## (d)
+
+```{r}
+tar_df <- data.frame(
+  yt = df$yt,
+  yt_1 = dplyr::lag(df$yt),
+  It = (dplyr::lag(df$yt) > -0.4012) + 0,
+  I_It = 1 - (dplyr::lag(df$yt) > -0.4012) + 0
+)
+
+# TARモデル推定
+tar_mdl <- lm(yt ~ It + It : yt_1 + I_It + I_It : yt_1 + 0, tar_df)
+summary(tar_mdl)
+```
+
