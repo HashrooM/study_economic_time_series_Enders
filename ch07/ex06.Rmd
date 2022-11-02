@@ -1,0 +1,95 @@
+---
+title: "第7章 練習問題[6]"
+output: github_document
+---
+
+# [6]
+## (a)
+```{r}
+library(dplyr)
+library(ggplot2)
+library(aod)
+
+df <- read.csv("../data/QUARTERLY.csv")
+
+# pi_t系列を作成
+pi_t <- diff(log(df$cpi)) * 400
+head(pi_t)
+```
+
+基本統計量
+
+```{r}
+list(
+  mean = mean(pi_t),
+  std = sqrt(var(pi_t)),
+  min = min(pi_t),
+  med = median(pi_t),
+  max = max(pi_t)
+)
+```
+
+プロット
+
+```{r}
+ts.plot(ts(pi_t, 1960, frequency = 4))
+```
+
+AICを基準として最適なARモデルを選択する。Rの `ar()` 関数は推定の前に平均を系列から引き算していることに注意。  
+
+```{r}
+ar_optim <- ar(pi_t, order.max = 10)
+print(ar_optim)
+```
+
+ラグ次数 3 が選択された。
+
+
+## (b)
+テラスバータの検定を行う。  
+d=1, d=2, d=3, ... と遅れパラメータを大きくしながらF統計量の大小で遅れパラメータを決定するのだが...  
+項が多くて面倒なので d=2 のみでやる...  
+
+```{r}
+# 残差
+et <- ar_optim$resid
+# ラグ1系列
+yt_1 = dplyr::lag(pi_t)
+# ラグ2系列
+yt_2 = dplyr::lag(pi_t, n = 2)
+# ラグ3系列
+yt_3 = dplyr::lag(pi_t, n = 3)
+
+# 遅れパラメータ d=2 で(7.21)式を推定する
+terasvirta_df <- data.frame(
+  et = et,
+  yt_1 = yt_1,
+  yt_2 = yt_2,
+  yt_3 = yt_3,
+  yt_2_2 = yt_2^2,
+  yt_2_3 = yt_2^3
+)
+
+terasvirta_reg <- lm(
+  et ~ yt_1 + yt_2 + yt_3 + yt_1:yt_2 + yt_2:yt_2 + yt_3:yt_2 + yt_1:yt_2_2 + yt_2:yt_2_2 + yt_3:yt_2_2 + yt_1:yt_2_3 + yt_2:yt_2_3 + yt_3:yt_2_3,
+  data = terasvirta_df
+)
+summary(terasvirta_reg)
+
+# 非線形項を0とした制約のワルド検定
+wald.test(Sigma = vcov(terasvirta_reg), b = coef(terasvirta_reg), Terms = 4:12)
+```
+
+d=1, d=3のワルド検定のF統計量がd=2よりも小さいので、d=2が選択される...はず。  
+(Rで実行すると結果違うかもしれないが未検証...)  
+解答ではd=2が選択されているので、ここでもその値を用いる。  
+
+d=2のワルド検定の結果より、非線形項が0という制約が成り立っている帰無仮説は棄却される。  
+ESTARとLSTARを選択するために、 $y_{t_2}^3$ の係数が 0 であるという制約を検定する。  
+
+```{r}
+wald.test(Sigma = vcov(terasvirta_reg), b = coef(terasvirta_reg), Terms = 10:12)
+```
+
+ $y_{t_2}^3$ の係数が 0 であるという制約が成り立っているという帰無仮説を棄却できない。  
+ よって ESTAR モデルが選択される。
