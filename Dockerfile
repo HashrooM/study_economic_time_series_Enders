@@ -23,7 +23,8 @@ RUN R -e "install.packages('markdown')" \
     && R -e "install.packages('vars')" \
     && R -e "install.packages('forecast')" \
     && R -e "install.packages('aod')" \
-    && R -e "install.packages('tsDyn')"
+    && R -e "install.packages('tsDyn')" \
+    && R -e "install.packages('strucchange')"
 
 # ワーキングディレクトリ変更
 WORKDIR /home/rstudio
