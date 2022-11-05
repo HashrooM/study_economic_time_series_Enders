@@ -1,0 +1,225 @@
+---
+title: "第7章 練習問題[7]"
+output: github_document
+---
+
+# [7]
+
+```{r}
+library(dplyr)
+library(ggplot2)
+
+df <- read.csv("../data/OIL.csv")
+
+# スポット価格の変化率
+pt <- diff(log(df$Spot)) * 100
+
+head(pt)
+```
+
+基本統計量
+
+```{r}
+list(
+  mean = mean(pt),
+  std = sqrt(var(pt)),
+  min = min(pt),
+  med = median(pt),
+  max = median(pt)
+)
+```
+
+プロット  
+`frequency = 365` とするとうるう年で微妙にずれる気もするが...気にしない。  
+(zooパッケージを使った方が良い？)
+
+```{r}
+ts.plot(ts(pt, start = c(1987, 5, 15), frequency = 365))
+```
+
+書籍の AR(||1, 3||) モデルを推定
+
+```{r}
+ar13 <- arima(pt, c(3, 0, 0), fixed = c(NA, 0, NA, NA), include.mean = T, transform.pars = F)
+ar13
+```
+
+
+## (a)
+
+```{r}
+library(strucchange)
+
+cusum_df <- data.frame(
+  yt = pt,
+  yt_1 = dplyr::lag(pt),
+  yt_3 = dplyr::lag(pt, 3)
+)
+
+res <- efp(yt ~ yt_1 + yt_3, data = cusum_df, type = "Rec-CUSUM")
+
+# 残差のCUSUM
+plot(res)
+```
+
+ARモデルの各パラメータの逐次的な推定値のプロット作成する方法が分からなかった...  
+とはいえ上記の結果だけでもパラメータが不安定であるとは言えないことが分かった。  
+
+
+## (b)
+
+```{r}
+res_fstats <- Fstats(yt ~ yt_1 + yt_3, data = cusum_df)
+plot(res_fstats)
+```
+
+supF検定でも構造変化点がないという帰無仮説を棄却できない。  
+ここで、対立仮説は「1回の構造変化がある」となっている点に注意。  
+
+## (c)
+色々調べたが、複数の構造変化を仮定してsupF統計量、UDmax統計量を求めるパッケージが見当たらなかった。  
+代わりに BIC で構造変化点の数を選択する `strucchange::breakpoints()` 関数で推定するのが一般的らしい？  
+
+[Tutorial: Change points and structural breaks](https://kevin-kotze.gitlab.io/tsm/ts-2-tut/)  
+
+書籍では推奨しない方法と書いてあるので、本来は書籍のバイ=ペロン検定を愚直に実装する必要がありそう。  
+さすがに面倒なので `breakpoints()` 関数を使った場合を以下に示す。  
+
+```{r}
+bps <- breakpoints(yt ~ yt_1 + yt_3, data = cusum_df)
+summary(bps)
+
+# RSS, BICのプロット
+plot(bps)
+```
+
+構造変化点 0 個がBIC最小なので、構造変化はないものと考えられる。  
+
+
+## (d)
+まず、TARモデルを推定して閾値を推定する。  
+
+```{r}
+library(tsDyn)
+
+tar_mdl <- setar(pt, 3)
+summary(tar_mdl)
+```
+
+閾値が 1.7 と推定された。  
+次に、推定した閾値を用いて書籍のモデルを推定する。  
+
+```{r}
+tar_df <- data.frame(
+  pt = pt,
+  pt_1 = dplyr::lag(pt),
+  pt_3 = dplyr::lag(pt, n = 3),
+  It = (dplyr::lag(pt) > 1.7) + 0,
+  I_It = 1 - (dplyr::lag(pt) > 1.7)
+)
+
+tar_mdl <- lm(pt ~ It + It:pt_1 + It:pt_3 + I_It + I_It:pt_1 + I_It:pt_3 + 0, tar_df)
+summary(tar_mdl)
+```
+
+書籍のモデルが推定できた。  
+ハンセンの検定を用いて上記で推定したTARモデルの線形性を検定する。  
+線形制約を課したモデルは (a) で推定しているので、 $SSR_u$ は (a) で推定したモデルの残差から計算すればよい。  
+
+```{r}
+# F統計量を算出
+# 線形モデルのSSR
+SSR_r <- sum(residuals(ar13)^2)
+# 非線形モデルのSSR
+SSR_u <- sum(residuals(tar_mdl)^2)
+# 利用可能なデータ数Tはラグ3の項があるのでその分減少する
+T <- length(pt) - 3
+# nは線形モデルa13のパラメータ数なので3
+n <- 3
+# F統計量
+F <- ((SSR_r - SSR_u) / n) / (SSR_u / (T - 2 * n))
+
+# ハンセンのブートストラップ法
+F_stars <- c()
+for (i in 1:1000) {
+  # 標準正規乱数
+  et <- rnorm(length(pt))
+  
+  # etを回帰するためのdata.frame
+  test_df <- data.frame(
+    et = et,
+    yt_1 = dplyr::lag(pt),
+    yt_3 = dplyr::lag(pt, 3),
+    It = (dplyr::lag(pt) > 1.7) + 0,
+    I_It = 1 - (dplyr::lag(pt) > 1.7)
+  )
+  
+  # SSR*_rを算出
+  r_mdl <- lm(et ~ yt_1 + yt_3 + 0, test_df)
+  SSR_star_r <- sum(residuals(r_mdl)^2)
+  
+  # SSR*_uを算出
+  u_mdl_1 <- lm(et ~ It + 0, test_df)
+  SSR_star_u_1 <- sum(residuals(u_mdl_1)^2)
+  
+  u_mdl_2 <- lm(et ~ I_It, test_df)
+  SSR_star_u_2 <- sum(residuals(u_mdl_2)^2)
+  
+  u_mdl_3 <- lm(et ~ It:yt_1 + It:yt_3 + 0, test_df)
+  SSR_star_u_3 <- sum(residuals(u_mdl_3)^2)
+  
+  u_mdl_4 <- lm(et ~ I_It:yt_1 + I_It:yt_3 + 0, test_df)
+  SSR_star_u_4 <- sum(residuals(u_mdl_4)^2)
+  
+  SSR_star_u <- min(c(SSR_star_u_1, SSR_star_u_2, SSR_star_u_3, SSR_star_u_4))
+  
+  # F*統計量を算出
+  F_star <- ((SSR_star_r - SSR_star_u) / n) / (SSR_star_u / (T - 2 * n))
+  F_stars <- append(F_stars, F_star)
+}
+
+# F*統計量の95%点を求める
+F_stars_95 <- sort(F_stars)[950]
+
+print(paste("F statistics: ", as.character(F)))
+print(paste("95% of F* statistics: ", as.character(F_stars_95)))
+```
+
+ブートストラップ法で求めた臨界値よりもF統計量が大きいので線形性の帰無仮説は棄却される。  
+
+
+## (e)
+まず書籍の簡略化されたモデルを推定する。  
+
+```{r}
+tar_mdl2 <- lm(pt ~ It + I_It:pt_1 + I_It:pt_3 + 0, tar_df)
+summary(tar_mdl2)
+```
+
+各々のAICを算出する。  
+
+```{r}
+print(paste("AIC of model 1: ", as.character(AIC(tar_mdl))))
+print(paste("AIC of model 2: ", as.character(AIC(tar_mdl2))))
+```
+
+AICでは簡略化されたモデルの方が有効と判断された。  
+
+
+## (f)
+(e) で推定した閾値とモデルで閾値が $y_{t\_2}$ で定まるモデルを推定してAICで比較する。  
+
+```{r}
+tar_df2 <- data.frame(
+  pt = pt,
+  pt_1 = dplyr::lag(pt),
+  pt_3 = dplyr::lag(pt, 3),
+  It = (dplyr::lag(pt, 2) > 1.7) + 0,
+  I_It = 1 - (dplyr::lag(pt, 2) > 1.7)
+)
+
+tar_mdl3 <- lm(pt ~ It + I_It:pt_1 + I_It:pt_3 + 0, tar_df2)
+AIC(tar_mdl3)
+```
+
+遅れ2のモデルはAICが大きく、選択されない。
